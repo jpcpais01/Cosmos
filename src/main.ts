@@ -764,6 +764,7 @@ async function main(): Promise<void> {
     const fNorm = Math.log(warp.factor) / Math.log(100);
     const beta = warp.visualBeta + warp.spool * 0.12;
     sky.update(camQ, universe.camera.projectionMatrix, viewport.set(bufW, bufH), pr, skyBright, fwd, beta, warp.intensity);
+    sky.setAdaptation(post.adaptTexture, 1.15 * distExposure);
 
     // ship lighting
     const shipAbs = ship.absPos(tmp2);

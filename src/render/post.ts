@@ -457,6 +457,10 @@ export class PostPipeline {
   private mips: WebGLRenderTarget[] = [];
   private adapt: WebGLRenderTarget[];
   private adaptIdx = 0;
+  /** the latest eye-adaptation result: 1x1, red = adapted scene luminance before exposure */
+  get adaptTexture(): Texture {
+    return this.adapt[this.adaptIdx].texture;
+  }
   private scene = new Scene();
   private cam = new OrthographicCamera(-1, 1, 1, -1, 0, 1);
   private quad: Mesh;
