@@ -805,26 +805,6 @@ async function main(): Promise<void> {
     mfd.update(dt, simMs);
     prof.cpu('Cockpit screens');
 
-    // render
-    prof.gpu('Sky & stars');
-    renderer.setRenderTarget(post.hdr);
-    renderer.clear(true, true, false);
-    renderer.render(sky.scene, sky.camera);
-    prof.gpu('Planets & moons');
-    renderer.render(universe.scene, universe.camera);
-    prof.gpu('Ship');
-    renderer.clearDepth();
-    // alpha becomes a ship mask (0 = world, 1 = ship) so warp distortion only bends space outside the hull.
-    // Only the warp composite reads it, and a masked clear rewrites the whole HDR buffer, so skip it otherwise.
-    if (Math.max(warp.intensity, warp.spool, warp.flash, warp.shake) > 0) {
-      gl.colorMask(false, false, false, true);
-      renderer.setClearColor(BLACK, 0);
-      renderer.clear(true, false, false);
-      gl.colorMask(true, true, true, true);
-      renderer.setClearColor(BLACK, 1);
-    }
-    renderer.render(shipView.scene, rig.camera);
-
     // sun glare: fades out as the Sun leaves the frame (its glow still spills in from just outside) and
     // with the analytic eclipse by planets and moons, rather than popping on and off
     tmp.subVectors(sun.pos, camAbs);
@@ -834,6 +814,27 @@ async function main(): Promise<void> {
     const sunOn = tmp.z < 1 && tmp.z > -1 ? (1 - MathUtils.smoothstep(sunEdge, 1.0, 1.3)) * vis : 0;
     sunUv.set(tmp.x * 0.5 + 0.5, tmp.y * 0.5 + 0.5);
     const sunRadius = Math.asin(Math.min(1, sun.def.radius / sunDist)) / (universe.pixelAngle * bufH);
+
+    // render
+    prof.gpu('Sky & stars');
+    renderer.setRenderTarget(post.hdr);
+    renderer.clear(true, true, false);
+    renderer.render(sky.scene, sky.camera);
+    prof.gpu('Planets & moons');
+    renderer.render(universe.scene, universe.camera);
+    prof.gpu('Ship');
+    renderer.clearDepth();
+    // alpha becomes a ship mask (0 = world, 1 = ship): warp distortion only bends space outside the hull and
+    // the hull hides the sun glare. A masked clear rewrites the whole HDR buffer, so skip it when neither needs it.
+    if (sunOn > 0 || Math.max(warp.intensity, warp.spool, warp.flash, warp.shake) > 0) {
+      gl.colorMask(false, false, false, true);
+      renderer.setClearColor(BLACK, 0);
+      renderer.clear(true, false, false);
+      gl.colorMask(true, true, true, true);
+      renderer.setClearColor(BLACK, 1);
+    }
+    renderer.render(shipView.scene, rig.camera);
+
     // warp apex
     tmp.copy(fwd).multiplyScalar(1e6);
     project(tmp, tmp);

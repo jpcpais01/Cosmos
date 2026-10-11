@@ -117,11 +117,6 @@ vec3 agx(vec3 c) {
   return clamp(mi * c, 0.0, 1.0);
 }
 
-float flareDisc(vec2 p, vec2 c, float r, float soft) {
-  float d = length((p - c) * vec2(uResolution.x / uResolution.y, 1.0));
-  return smoothstep(r, r * (1.0 - soft), d);
-}
-
 // Sun glare, drawn analytically around the Sun's exact sub-pixel position so it stays steady while the
 // view moves (the disc itself is only a few pixels across). Hidden by the ship through its mask, which
 // is filtered so the glare fades smoothly as a strut or the hull slides over the Sun.
@@ -155,13 +150,7 @@ vec3 sunFlare(vec2 uv, vec2 aspect) {
     streak *= 0.5 / (1.0 + dsun * dsun * 900.0) * smoothstep(0.002, 0.012, k);
   }
   vec3 fl = vec3(1.0, 0.9, 0.78) * glow + vec3(1.0, 0.95, 0.9) * (spk + streak);
-  // lens ghosts along the line through the centre of the frame, with a faint rainbow ring
-  vec2 axis = vec2(0.5) - uSunUv;
-  fl += vec3(0.9, 0.6, 0.35) * flareDisc(uv, uSunUv + axis * 0.55, 0.03, 0.4) * 0.012;
-  fl += vec3(0.35, 0.6, 1.0) * flareDisc(uv, uSunUv + axis * 0.85, 0.05, 0.15) * 0.008;
-  fl += vec3(0.5, 1.0, 0.6) * flareDisc(uv, uSunUv + axis * 1.25, 0.02, 0.5) * 0.014;
-  fl += vec3(1.0, 0.5, 0.8) * flareDisc(uv, uSunUv + axis * 1.6, 0.09, 0.08) * 0.005;
-  fl += vec3(0.6, 0.75, 1.0) * flareDisc(uv, uSunUv + axis * 2.1, 0.15, 0.05) * 0.003;
+  // a faint rainbow ring around the Sun
   float rg = (dsun - 0.3) / 0.035;
   fl += warpHue(0.62 - rg * 0.12) * exp(-rg * rg) * 0.004;
   return fl * vis;
