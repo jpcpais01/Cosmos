@@ -32,17 +32,20 @@ declare global {
 
 interface Preset {
   pixelRatio: number;
-  samples: number;
+  /** FXAA on the final image (replaces MSAA, which cost far more than it gave) */
+  aa: boolean;
+  /** sharpening of smooth areas in the AA pass, 0..1 */
+  sharpen: number;
   maxTexture: number;
   shadow: number;
   milkyWay: number;
 }
 
 const PRESETS: Record<Quality, Preset> = {
-  low: { pixelRatio: 0.75, samples: 0, maxTexture: 2048, shadow: 1024, milkyWay: 2048 },
-  medium: { pixelRatio: 1, samples: 2, maxTexture: 4096, shadow: 2048, milkyWay: 6000 },
-  high: { pixelRatio: 1.5, samples: 4, maxTexture: 8192, shadow: 2048, milkyWay: 6000 },
-  ultra: { pixelRatio: 2, samples: 4, maxTexture: 8192, shadow: 4096, milkyWay: 6000 },
+  low: { pixelRatio: 0.75, aa: false, sharpen: 0, maxTexture: 2048, shadow: 1024, milkyWay: 2048 },
+  medium: { pixelRatio: 1, aa: true, sharpen: 0.2, maxTexture: 4096, shadow: 2048, milkyWay: 6000 },
+  high: { pixelRatio: 1.25, aa: true, sharpen: 0.3, maxTexture: 8192, shadow: 2048, milkyWay: 6000 },
+  ultra: { pixelRatio: 1.5, aa: true, sharpen: 0.3, maxTexture: 8192, shadow: 4096, milkyWay: 6000 },
 };
 
 const TIME_SCALES = [1, 10, 100, 1000, 10_000, 100_000, 1_000_000];
@@ -125,7 +128,8 @@ async function main(): Promise<void> {
   // --- rendering
   const universe = new Universe(renderer, eph, preset.maxTexture);
   const sky = new Sky();
-  const post = new PostPipeline(renderer, preset.samples);
+  const post = new PostPipeline(renderer);
+  post.setAA(preset.aa, preset.sharpen);
   const shipView = new ShipView(renderer);
   shipView.sun.shadow.mapSize.set(preset.shadow, preset.shadow);
   const env = new EnvMap(renderer, universe, eph, worldToGalactic());
@@ -234,7 +238,7 @@ async function main(): Promise<void> {
     if (next !== preset) {
       const texChanged = next.maxTexture !== preset.maxTexture;
       preset = next;
-      post.setSamples(preset.samples);
+      post.setAA(preset.aa, preset.sharpen);
       shipView.sun.shadow.mapSize.set(preset.shadow, preset.shadow);
       shipView.sun.shadow.map?.dispose();
       shipView.sun.shadow.map = null;
