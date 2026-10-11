@@ -11,6 +11,14 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     date: '2026-10-11',
+    title: 'Landscape from the first touch',
+    notes: [
+      'On phones and tablets, the first touch anywhere (even on the loading or title screen) now switches to full screen and turns the game sideways, where the browser allows it (Android Chrome).',
+      'If you leave the app and come back, the next touch does it again. On iPhone, Safari can\'t lock the screen, so the rotate prompt still asks you to turn the phone.',
+    ],
+  },
+  {
+    date: '2026-10-11',
     title: 'Ten new famous views',
     notes: [
       'The Saved locations panel (L or the pin button) has ten more places to jump to, each at a moment picked for its light: the Moon\'s shadow on Earth during the 2027 total eclipse, Io\'s shadow on Jupiter, Saturn hiding the Sun, a crescent Venus, dawn on Mercury, Phobos over Mars, Titan before Saturn, Uranus from Miranda, Pluto and Charon, and a half Moon beside a half Earth.',

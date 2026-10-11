@@ -25,6 +25,7 @@ import { Sound } from './audio/sound';
 import { fmtDistance } from './ui/format';
 import { startSplashStars } from './ui/splash';
 import { renderPatchNotes } from './ui/patchNotes';
+import { enterImmersive, immersiveOnFirstTouch } from './ui/immersive';
 
 const BASE = import.meta.env.BASE_URL;
 
@@ -105,6 +106,7 @@ async function main(): Promise<void> {
   const bar = $('load-bar');
   const loadText = $('load-text');
   startSplashStars($<HTMLCanvasElement>('load-stars'));
+  immersiveOnFirstTouch();
   renderPatchNotes($('patch-notes'));
   const loadPct = $('load-pct');
   if (!webglAvailable()) {
@@ -369,7 +371,7 @@ async function main(): Promise<void> {
       settingsChanged: applySettings,
       fullscreen: () => {
         if (document.fullscreenElement) void document.exitFullscreen();
-        else void document.documentElement.requestFullscreen?.().catch(() => undefined);
+        else void enterImmersive();
       },
       clearTarget: () => warp.setTarget(null),
       refreshApp: () => void refreshApp(),
@@ -637,7 +639,7 @@ async function main(): Promise<void> {
           break;
         case 'KeyF':
           if (document.fullscreenElement) void document.exitFullscreen();
-          else void document.documentElement.requestFullscreen?.().catch(() => undefined);
+          else void enterImmersive();
           break;
         case 'Comma':
           timeIdx = Math.max(0, timeIdx - 1);
@@ -1053,15 +1055,8 @@ async function main(): Promise<void> {
       start.addEventListener('click', go, { once: true });
       window.addEventListener('keydown', onKey);
     });
-    // on phones and tablets, go full screen and hold landscape (where the browser allows it)
-    if (matchMedia('(pointer: coarse)').matches) {
-      try {
-        await document.documentElement.requestFullscreen?.({ navigationUI: 'hide' });
-        await (screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> }).lock?.('landscape');
-      } catch {
-        /* not supported (iOS Safari) or refused: the rotate prompt covers it */
-      }
-    }
+    // phones and tablets: make sure we're full screen and landscape (the first touch normally did it)
+    if (matchMedia('(pointer: coarse)').matches) await enterImmersive();
   }
   document.body.classList.add('playing');
   sound.start();
