@@ -11,6 +11,16 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     date: '2026-10-11',
+    title: 'Lighter on the graphics card',
+    notes: [
+      'The game no longer rewrites the whole frame once more every time the Sun is on screen or the warp drive is on. The ship\'s outline now comes for free from the depth it already draws.',
+      'Ship reflections are rebuilt only when what they reflect has actually changed, instead of about three times a second. That was a small stutter you could feel on slower graphics.',
+      'The glow (bloom) uses a format half the size, so every glow pass moves half the data.',
+      'Removed an unused full-screen buffer, which frees some video memory.',
+    ],
+  },
+  {
+    date: '2026-10-11',
     title: 'A cleaner, shakier warp',
     notes: [
       'The warp tunnel is silver and white now. Its only colour is the red and blue fringing of chromatic aberration, which grows with speed.',

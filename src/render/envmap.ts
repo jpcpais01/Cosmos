@@ -74,6 +74,8 @@ void main() {
 
 const _rel = new Vector3();
 const _tmp = new Vector3();
+/** a re-render that changes nothing visible still costs a full reflection (PMREM) rebuild, so skip it */
+const MAX_AGE = 5;
 
 /** Low-res equirect environment (sky + nearby lit bodies) for ship reflections and planet-shine. */
 export class EnvMap {
@@ -82,6 +84,11 @@ export class EnvMap {
   private cam = new OrthographicCamera(-1, 1, 1, -1, 0, 1);
   private mat: ShaderMaterial;
   private timer = 0;
+  private age = Infinity;
+  /** what the last render was made from, each value scaled so a change of 1 is about the smallest that shows */
+  private sig: number[] = [];
+  private nextSig: number[] = [];
+  private inputs: (Texture | null)[] = [];
 
   constructor(private renderer: WebGLRenderer, private universe: Universe, private eph: Ephemeris, w2g: Matrix3) {
     this.target.texture.mapping = EquirectangularReflectionMapping;
@@ -123,9 +130,14 @@ export class EnvMap {
     this.mat.uniforms.uMilkyWay.value = t;
   }
 
-  /** Re-renders the environment every `interval` seconds (or immediately when forced). */
+  /**
+   * Checks every `interval` seconds whether the environment changed enough to show (bodies moved or turned
+   * against the view, the light or the exposure changed, a texture was swapped) and re-renders it only then,
+   * or immediately when forced.
+   */
   update(dt: number, camAbs: Vector3, skyI: number, force = false, interval = 0.35): boolean {
     this.timer -= dt;
+    this.age += dt;
     if (this.timer > 0 && !force) return false;
     this.timer = interval;
     const u = this.mat.uniforms;
@@ -162,11 +174,39 @@ export class EnvMap {
       (u.uHazeH.value as number[])[i] = atmo ? Math.max(atmo.height / R, 0.01) : 0;
       u[`uMap${i}`].value = c.v.mat.uniforms.uMap.value;
     });
+    const changed = this.changed(cands.length);
+    if (!force && this.age < MAX_AGE && !changed) return false;
+    this.age = 0;
+    [this.sig, this.nextSig] = [this.nextSig, this.sig];
     const prev = this.renderer.getRenderTarget();
     this.renderer.setRenderTarget(this.target);
     this.renderer.render(this.scene, this.cam);
     this.renderer.setRenderTarget(prev);
     this.target.texture.needsPMREMUpdate = true;
     return true;
+  }
+
+  /** Builds the signature of the uniforms just set into nextSig and compares it with the last render's. */
+  private changed(count: number): boolean {
+    const u = this.mat.uniforms;
+    const sig = this.nextSig;
+    sig.length = 0;
+    // directions to about 0.2 degrees (a pixel of the 256-wide map is 1.4), distance, light and exposure to 1-2%
+    const D = 1 / 0.003;
+    sig.push(Math.log(u.uSkyI.value) * 50);
+    for (let i = 0; i < count; i++) {
+      const dir = (u.uDir.value as Vector3[])[i];
+      const sunB = (u.uSunB.value as Vector3[])[i];
+      sig.push(dir.x * D, dir.y * D, dir.z * D, sunB.x * D, sunB.y * D, sunB.z * D);
+      for (const e of (u.uW2B.value as Matrix3[])[i].elements) sig.push(e * D);
+      sig.push(Math.log((u.uDist.value as number[])[i]) * D, Math.log((u.uIrr.value as Vector3[])[i].x) * 100);
+    }
+    let changed = sig.length !== this.sig.length;
+    for (let k = 0; !changed && k < sig.length; k++) changed = Math.abs(sig[k] - this.sig[k]) > 1;
+    // a body's texture (or the sky's) swapped for a sharper one
+    const tex = [u.uMilkyWay.value, ...Array.from({ length: count }, (_, i) => u[`uMap${i}`].value)];
+    if (tex.length !== this.inputs.length || tex.some((t, i) => t !== this.inputs[i])) changed = true;
+    this.inputs = tex;
+    return changed;
   }
 }
