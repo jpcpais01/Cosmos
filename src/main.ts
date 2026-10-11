@@ -20,6 +20,7 @@ import { SystemMap } from './ui/map';
 import { Mfd } from './ui/mfd';
 import { Sound } from './audio/sound';
 import { fmtDistance } from './ui/format';
+import { startSplashStars } from './ui/splash';
 
 const BASE = import.meta.env.BASE_URL;
 
@@ -89,11 +90,13 @@ function sunVisibility(eph: Ephemeris, p: Vector3): number {
 const _s1 = new Vector3();
 const ORIGIN = new Vector3();
 const _s2 = new Vector3();
+const _rates = new Vector3();
 
 async function main(): Promise<void> {
   const loading = $('loading');
   const bar = $('load-bar');
   const loadText = $('load-text');
+  startSplashStars($<HTMLCanvasElement>('load-stars'));
   if (!webglAvailable()) {
     loadText.textContent = 'This experience needs WebGL 2. Please use a recent Chrome, Edge, Firefox or Safari.';
     return;
@@ -135,6 +138,7 @@ async function main(): Promise<void> {
   const showProgress = () => {
     const p = progress.tex * 0.55 + progress.stars * 0.15 + progress.ship * 0.2 + progress.sky * 0.1;
     bar.style.width = `${Math.round(p * 100)}%`;
+    loadText.textContent = `Loading the Solar System · ${Math.round(p * 100)}%`;
   };
   const loadSky = (w: number) =>
     new TextureLoader().loadAsync(`${BASE}textures/sky/milkyway_${w}.webp`).then((t) => {
@@ -146,7 +150,7 @@ async function main(): Promise<void> {
       env.setMilkyWay(t);
       return t;
     });
-  loadText.textContent = 'Loading planets, stars and your ship…';
+  loadText.textContent = 'Loading the Solar System';
   await Promise.all([
     universe.preload((f) => {
       progress.tex = f;
@@ -159,7 +163,7 @@ async function main(): Promise<void> {
     shipView.load((f) => {
       progress.ship = f;
       showProgress();
-    }).then((parts) => rig.setEye(parts.eye.clone().add(new Vector3(0, 0.1, 0.05)))),
+    }).then((parts) => rig.setEye(parts.viewEye.clone())),
     loadSky(2048).then(() => {
       progress.sky = 1;
       showProgress();
@@ -444,18 +448,35 @@ async function main(): Promise<void> {
 
   // launch screen
   loadText.textContent = 'Ready';
+  loading.classList.add('ready');
   const start = $('start');
   start.classList.remove('hidden');
   if (!params.has('autostart')) {
+    start.focus({ preventScroll: true });
     await new Promise<void>((resolve) => {
       start.addEventListener('click', () => resolve(), { once: true });
     });
+    // on phones and tablets, go full screen and hold landscape (where the browser allows it)
+    if (matchMedia('(pointer: coarse)').matches) {
+      try {
+        await document.documentElement.requestFullscreen?.({ navigationUI: 'hide' });
+        await (screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> }).lock?.('landscape');
+      } catch {
+        /* not supported (iOS Safari) or refused: the rotate prompt covers it */
+      }
+    }
   }
+  document.body.classList.add('playing');
   sound.start();
   sound.setMuted(!settings.sound);
   loading.classList.add('done');
   window.setTimeout(() => loading.remove(), 1200);
-  hud.toast('Welcome aboard. Press H for controls, M for the map.', 5000);
+  hud.toast(
+    matchMedia('(pointer: coarse)').matches
+      ? 'Welcome aboard. Left thumb steers, right thumb sets the throttle.'
+      : 'Welcome aboard. Press H for controls, M for the map.',
+    5000,
+  );
 
   // Look for a new version whenever the app comes back to the foreground, and every 30 minutes.
   // When one takes over while the game is open, light up the update button rather than reload mid-flight.
@@ -683,6 +704,10 @@ async function main(): Promise<void> {
     const cockpit = rig.mode === 'cockpit';
     shipView.cabin.intensity = (cockpit ? 0.35 : 0.15) * eg * dbg.cabin;
     if (parts.canopy) parts.canopy.visible = dbg.canopy;
+    shipView.setCanopyOutside(!cockpit);
+    // the pilot's stick follows the turn rates, the lever the throttle
+    _rates.set(ship.angVel.x / 1.1, ship.angVel.y / 1.1, ship.angVel.z / 1.54).clampScalar(-1, 1);
+    parts.pilot.update(dt, _rates, ship.throttle, t, cockpit);
     shipView.screenLight.intensity = 0.3 * eg;
     // warp light: calm and blue at 1c, flickering and drifting through colours at 100c
     if (warp.state !== 'idle' && prevWarpState === 'idle') warpSeed = Math.random();

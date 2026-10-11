@@ -28,7 +28,7 @@ export default defineConfig({
         theme_color: '#000000',
         background_color: '#000000',
         display: 'fullscreen',
-        orientation: 'any',
+        orientation: 'landscape',
         start_url: '/',
         scope: '/',
         categories: ['games', 'education'],

@@ -5,6 +5,7 @@ import {
   Texture, TextureLoader, Vector2, Vector3, type Material, type WebGLRenderer,
 } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { Pilot, removeBakedControls } from './pilot';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 
 const BASE = import.meta.env.BASE_URL;
@@ -69,7 +70,10 @@ float pnlSeams(vec2 q, out float id) {
   mat.customProgramCacheKey = () => `enh${scale}${strength}${aoDirect}`;
 }
 
-/** Canopy glass: reflections are added, the scene behind is only slightly darkened. */
+/**
+ * Canopy glass: reflections are added over the scene behind. From inside it is nearly clear; from
+ * outside it is smoked, so the canopy reads as glass rather than a hole in the hull.
+ */
 function glassMaterial(): MeshPhysicalMaterial {
   const m = new MeshPhysicalMaterial({
     color: new Color(0, 0, 0),
@@ -86,13 +90,17 @@ function glassMaterial(): MeshPhysicalMaterial {
   m.blending = CustomBlending;
   m.blendSrc = OneFactor;
   m.blendDst = OneMinusSrcAlphaFactor;
+  const outside = { value: 0 };
+  m.userData.outside = outside;
   m.onBeforeCompile = (s) => {
-    s.fragmentShader = s.fragmentShader.replace(
+    s.uniforms.uOutside = outside;
+    s.fragmentShader = 'uniform float uOutside;\n' + s.fragmentShader.replace(
       '#include <opaque_fragment>',
       /* glsl */ `
 float fres = pow(1.0 - abs(dot(normalize(vViewPosition), normal)), 4.0);
-float a = mix(diffuseColor.a, 0.55, fres);
-gl_FragColor = vec4(outgoingLight, a);`,
+float a = mix(mix(diffuseColor.a, 0.62, uOutside), mix(0.55, 0.92, uOutside), fres);
+vec3 tint = vec3(0.012, 0.02, 0.03) * uOutside;
+gl_FragColor = vec4(outgoingLight + tint * a, a);`,
     );
   };
   return m;
@@ -239,6 +247,9 @@ export interface ShipParts {
   interiorMeshes: Mesh[];
   hullMeshes: Mesh[];
   canopy?: Mesh;
+  pilot: Pilot;
+  /** where the cockpit camera sits (the pilot's eyes) */
+  viewEye: Vector3;
 }
 
 /** The ship scene (metres). Rendered after the world with its own depth range. */
@@ -442,7 +453,13 @@ void main() { vec2 d = gl_PointCoord - 0.5; float g = exp(-dot(d, d) * 40.0); gl
     this.warpLight.position.set(0, 2, -6);
     model.add(this.cabin, this.screenLight, this.warpLight);
 
-    this.parts = { root, model, eye, screens, glows, plumes, lenses, nav: { points: navPoints, mat: navMat }, interiorMeshes, hullMeshes, canopy };
+    // the pilot, holding an animated stick and throttle in place of the model's fixed ones
+    removeBakedControls(interiorMeshes, model);
+    const viewEye = eye.clone().add(new Vector3(0, 0.1, 0.05));
+    const pilot = new Pilot(viewEye);
+    model.add(pilot.group);
+
+    this.parts = { root, model, eye, screens, glows, plumes, lenses, nav: { points: navPoints, mat: navMat }, interiorMeshes, hullMeshes, canopy, pilot, viewEye };
     return this.parts;
   }
 
@@ -496,6 +513,12 @@ void main() { vec2 d = gl_PointCoord - 0.5; float g = exp(-dot(d, d) * 40.0); gl
       t.flipY = false;
       m.material = new MeshBasicMaterial({ map: t, color: new Color(1.7, 1.7, 1.7) });
     });
+  }
+
+  /** Smoked canopy glass from outside, clear from the cockpit. */
+  setCanopyOutside(outside: boolean): void {
+    const u = (this.parts?.canopy?.material as Material | undefined)?.userData.outside as { value: number } | undefined;
+    if (u) u.value = outside ? 1 : 0;
   }
 
   setEnvMap(env: Texture | null): void {
