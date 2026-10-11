@@ -131,6 +131,25 @@ const ICONS = {
   more: '<svg viewBox="0 0 24 24"><circle cx="5.5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="18.5" cy="12" r="1.6"/></svg>',
 };
 
+/** Phones and tablets get the thumb-driven touch layout. */
+const TOUCH = matchMedia('(pointer: coarse)').matches;
+
+/** A button that is "on" while held down (touch controls). */
+function hold(b: HTMLElement, set: (on: boolean) => void): void {
+  b.addEventListener('pointerdown', (e) => {
+    b.setPointerCapture(e.pointerId);
+    b.classList.add('on');
+    set(true);
+  });
+  const off = () => {
+    b.classList.remove('on');
+    set(false);
+  };
+  b.addEventListener('pointerup', off);
+  b.addEventListener('pointercancel', off);
+  b.addEventListener('contextmenu', (e) => e.preventDefault());
+}
+
 /** DOM heads-up display, menus and touch controls. */
 export class Hud {
   readonly root = el('div', 'hud');
@@ -173,6 +192,9 @@ export class Hud {
   stick = { x: 0, y: 0 };
   touchThrottle: number | null = null;
   touchRoll = 0;
+  touchBoost = false;
+  touchBrake = false;
+  private thrText = el('div', 'tthr-text', '0%');
   private lastState?: HudState;
 
   constructor(private actions: HudActions, private settings: Settings) {
@@ -211,7 +233,15 @@ export class Hud {
       this.updateBtn,
       btn(ICONS.full, 'Fullscreen (F)', () => actions.fullscreen(), 'btn icon'),
     );
-    more.addEventListener('click', () => tr.classList.remove('open'));
+    // touch: name each button, since there is no hover tooltip to say what it does
+    const names = ['Labels', 'Sound', 'Settings', 'Controls', 'Update', 'Fullscreen'];
+    [...more.children].forEach((b, i) => b.append(el('span', 'btn-name', names[i])));
+    // capture phase: the buttons stop their clicks from bubbling
+    more.addEventListener('click', () => tr.classList.remove('open'), true);
+    // a tap anywhere else closes the menu too
+    window.addEventListener('pointerdown', (e) => {
+      if (tr.classList.contains('open') && !tr.contains(e.target as Node)) tr.classList.remove('open');
+    }, true);
     this.moreBtn = btn(ICONS.more, 'More', () => tr.classList.toggle('open'), 'btn icon more');
     tr.append(
       btn(ICONS.map, 'Solar system map (M)', () => actions.toggleMap(), 'btn icon'),
@@ -241,8 +271,13 @@ export class Hud {
     }
     this.engageBtn = btn('ENGAGE', 'Engage warp (J)', () => {
       if (this.lastState && this.lastState.warpState !== 'idle') actions.abort();
+      else if (TOUCH && !this.lastState?.targetName) actions.toggleMap();
       else actions.engage();
     }, 'btn primary engage');
+    if (TOUCH) {
+      // tapping the destination opens the map to pick one
+      for (const e of [this.warpTarget, this.warpEta]) e.addEventListener('click', () => actions.toggleMap());
+    }
     // touch layout: one chip cycles the warp factor next to the engage button
     this.factorCycle = btn('10c', 'Warp factor', () => {
       const cur = this.lastState?.warpFactor ?? WARP_FACTORS[2];
@@ -434,7 +469,19 @@ export class Hud {
     const head = el('div', 'panel-head', 'CONTROLS');
     head.append(btn('✕', 'Close', () => this.closePanels(), 'btn tiny'));
     p.append(head);
-    const rows: [string, string][] = [
+    const touchRows: [string, string][] = [
+      ['Left thumb', 'Steer: touch anywhere low on the left and drag'],
+      ['Drag the view', 'Look around (cockpit) / orbit camera (outside) · double-tap to look ahead again'],
+      ['THR', 'Slide up / down for speed (logarithmic, 10 m/s → 15,000 km/s)'],
+      ['BOOST', 'Hold for extra speed'],
+      ['BRAKE', 'Hold to slow down'],
+      ['Roll buttons', 'Hold to roll left / right'],
+      ['Destination', 'Tap it (or the map button) to choose a body or any point'],
+      ['10c', 'Tap to change the warp factor: 1c, 3c, 10c, 50c, 100c'],
+      ['ENGAGE', 'Jump to warp · tap again to drop out'],
+      ['•••', 'Labels, sound, settings, controls, update, fullscreen'],
+    ];
+    const rows: [string, string][] = TOUCH ? touchRows : [
       ['W / S', 'Throttle up / down (logarithmic, 10 m/s → 15,000 km/s)'],
       ['A / D · ← →', 'Yaw'],
       ['↑ ↓', 'Pitch'],
@@ -477,12 +524,17 @@ export class Hud {
     let cy = 0;
     const R = 58; // stick radius in CSS px
     const set = (e: PointerEvent) => {
-      const x = (e.clientX - cx) / R;
-      const y = (e.clientY - cy) / R;
+      let x = (e.clientX - cx) / R;
+      let y = (e.clientY - cy) / R;
       const l = Math.max(1, Math.hypot(x, y));
-      this.stick.x = x / l;
-      this.stick.y = y / l;
-      knob.style.transform = `translate(${this.stick.x * (R - 22)}px, ${this.stick.y * (R - 22)}px)`;
+      x /= l;
+      y /= l;
+      knob.style.transform = `translate(${x * (R - 22)}px, ${y * (R - 22)}px)`;
+      // a small dead zone so a resting thumb doesn't drift, then a gentle curve for fine aiming
+      const m = Math.hypot(x, y);
+      const k = m < 0.08 ? 0 : Math.pow((m - 0.08) / 0.92, 1.35) / m;
+      this.stick.x = x * k;
+      this.stick.y = y * k;
     };
     zone.addEventListener('pointerdown', (e) => {
       if (id !== null) return;
@@ -533,13 +585,13 @@ export class Hud {
     const thr = el('div', 'tthr');
     const fill = el('div', 'tthr-fill');
     const mark = el('div', 'tthr-label', 'THR');
-    thr.append(fill, mark);
+    thr.append(fill, mark, this.thrText);
     let tid: number | null = null;
     const setT = (e: PointerEvent) => {
       const r = thr.getBoundingClientRect();
       const v = Math.min(1, Math.max(0, 1 - (e.clientY - r.top) / r.height));
       this.touchThrottle = v;
-      fill.style.height = `${v * 100}%`;
+      this.syncTouchThrottle(v);
     };
     thr.addEventListener('pointerdown', (e) => {
       tid = e.pointerId;
@@ -550,13 +602,22 @@ export class Hud {
     const tend = (e: PointerEvent) => e.pointerId === tid && (tid = null);
     thr.addEventListener('pointerup', tend);
     thr.addEventListener('pointercancel', tend);
-    this.touch.append(zone, rolls, thr);
+
+    // boost and brake, held down, beside the top of the throttle
+    const pedals = el('div', 'tpedals');
+    const boost = el('button', 'btn pedal', 'BOOST');
+    const brake = el('button', 'btn pedal brake', 'BRAKE');
+    hold(boost, (on) => (this.touchBoost = on));
+    hold(brake, (on) => (this.touchBrake = on));
+    pedals.append(boost, brake);
+    this.touch.append(zone, rolls, thr, pedals);
   }
 
   /** Called when the throttle is changed by other inputs so the touch slider follows. */
   syncTouchThrottle(v: number): void {
     const fill = this.touch.querySelector<HTMLDivElement>('.tthr-fill');
     if (fill) fill.style.height = `${v * 100}%`;
+    this.thrText.textContent = `${Math.round(v * 100)}%`;
   }
 
   /** A newer version has been downloaded: highlight the update button. */
@@ -594,12 +655,13 @@ export class Hud {
       this.warpEta.textContent = `${fmtDistance(s.targetDistance)} · ETA ${fmtDuration(s.targetEta)}`;
     } else {
       this.warpTarget.textContent = 'No destination';
-      this.warpEta.textContent = document.body.classList.contains('touch-ui') ? 'Open the map to choose one' : 'Open the map (M) to choose one';
+      this.warpEta.textContent = TOUCH ? 'Tap here to choose one on the map' : 'Open the map (M) to choose one';
     }
     const active = s.warpState !== 'idle';
     this.engageBtn.textContent = active ? (s.warpState === 'cruise' ? 'DROP OUT' : 'ABORT') : 'ENGAGE';
     this.engageBtn.classList.toggle('danger', active);
-    this.engageBtn.disabled = !s.targetName && !active;
+    this.engageBtn.disabled = !TOUCH && !s.targetName && !active;
+    this.engageBtn.classList.toggle('idle', !s.targetName && !active);
     let st = '';
     if (s.warpState === 'aligning') st = 'ALIGNING TO TARGET';
     else if (s.warpState === 'spooling') st = `WARP DRIVE CHARGING ${Math.round(s.warpSpool * 100)}%`;
