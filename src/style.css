@@ -797,6 +797,63 @@ body.intro #ui {
   color: var(--red);
 }
 
+.fps {
+  cursor: pointer;
+}
+.perf {
+  margin-top: 6px;
+  width: 270px;
+  padding: 7px 9px 8px;
+  border-radius: 8px;
+  background: rgba(4, 10, 18, 0.62);
+  border: 1px solid rgba(125, 211, 255, 0.14);
+  color: #cfe9ff;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  line-height: 1.45;
+  text-shadow: none;
+}
+.perf .ph {
+  color: #9fd8ff;
+}
+.perf .ps {
+  margin-top: 5px;
+  color: #ffffff;
+  letter-spacing: 0.08em;
+}
+.perf .dim {
+  color: rgba(207, 233, 255, 0.55);
+}
+.perf .pr {
+  display: grid;
+  grid-template-columns: 1fr 38px 70px;
+  align-items: center;
+  gap: 6px;
+}
+.perf .pn {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.perf .pv {
+  text-align: right;
+}
+.perf .pb {
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.perf .pb i {
+  display: block;
+  height: 100%;
+  background: #7dffa8;
+}
+.perf .pr.c .pb i {
+  background: #7dd3ff;
+}
+
 .hud-tr {
   position: absolute;
   right: calc(14px + var(--safe-r));
@@ -1781,4 +1838,8 @@ body.touch-ui .map-moon {
   body.touch-ui .info-dist {
     margin: 4px 0 8px;
   }
+}
+body.touch-ui .perf {
+  width: 220px;
+  font-size: 9.5px;
 }

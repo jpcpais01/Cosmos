@@ -1,6 +1,18 @@
 import { WARP_FACTORS, type WarpFactor } from '../sim/constants';
 import type { SavedLocation } from '../game/locations';
 import { fmtDate, fmtDistance, fmtDuration, fmtSpeed } from './format';
+import type { ProfileReport } from '../render/profiler';
+
+/** What the performance breakdown shows besides the frame rate. */
+export interface PerfInfo {
+  report: ProfileReport;
+  quality: Quality;
+  width: number;
+  height: number;
+  gpu: string;
+}
+
+const esc = (t: string) => t.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
 
 export type Quality = 'low' | 'medium' | 'high' | 'ultra';
 
@@ -12,6 +24,8 @@ export interface Settings {
   fps: boolean;
   /** 3D scanner in the corner of the HUD */
   minimap: boolean;
+  /** per-pass cost breakdown under the FPS counter */
+  perf: boolean;
   sound: boolean;
   volume: number;
   /** cockpit field of view in degrees; the chase views sit 12° narrower */
@@ -28,7 +42,7 @@ export function defaultQuality(): Quality {
 }
 
 export function loadSettings(): Settings {
-  const d: Settings = { quality: defaultQuality(), invertY: false, sensitivity: 1, labels: true, fps: true, minimap: true, sound: true, volume: 0.7, fov: 72 };
+  const d: Settings = { quality: defaultQuality(), invertY: false, sensitivity: 1, labels: true, fps: true, minimap: true, perf: true, sound: true, volume: 0.7, fov: 72 };
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (raw) return { ...d, ...(JSON.parse(raw) as Partial<Settings>) };
@@ -128,6 +142,8 @@ export class Hud {
   private dateEl = el('div', 'date');
   private scaleEl = el('div', 'tscale');
   private fpsEl = el('div', 'fps');
+  private fpsLine = el('div', 'fps-line');
+  private perfEl = el('div', 'perf');
   private warpTarget = el('div', 'warp-target');
   private warpEta = el('div', 'warp-eta');
   private factorBtns = new Map<WarpFactor, HTMLButtonElement>();
@@ -170,6 +186,14 @@ export class Hud {
       btn('NOW', 'Back to the real current time', () => actions.timeNow(), 'btn small'),
       this.scaleEl,
     );
+    this.fpsEl.append(this.fpsLine, this.perfEl);
+    this.fpsEl.title = 'Click to show or hide the cost breakdown';
+    this.fpsEl.onclick = () => {
+      this.settings.perf = !this.settings.perf;
+      this.perfEl.style.display = this.settings.perf ? '' : 'none';
+      saveSettings(this.settings);
+    };
+    this.perfEl.style.display = this.settings.perf ? '' : 'none';
     tl.append(this.locName, this.locSub, this.dateEl, timeRow, this.fpsEl);
 
     // top-right toolbar
@@ -378,6 +402,15 @@ export class Hud {
     mini.onchange = () => this.toggle('minimap');
     this.minimapCheck = mini;
     row('Show minimap', mini);
+    const perf = el('input');
+    perf.type = 'checkbox';
+    perf.checked = s.perf;
+    perf.onchange = () => {
+      s.perf = perf.checked;
+      this.perfEl.style.display = s.perf ? '' : 'none';
+      this.commit();
+    };
+    row('Show cost breakdown under FPS', perf);
     const vol = el('input');
     vol.type = 'range';
     vol.min = '0';
@@ -576,13 +609,36 @@ export class Hud {
     this.status.classList.toggle('show', !!st);
   }
 
-  /** Frame-rate readout: frames per second, mean frame time and the dynamic render scale. */
-  setFps(fps: number, ms: number, renderScale: number): void {
+  /** Frame-rate readout: frames per second, mean frame time and the dynamic render scale, plus the cost breakdown. */
+  setFps(fps: number, ms: number, renderScale: number, perf: PerfInfo | null): void {
     if (!this.settings.fps) return;
     const res = renderScale < 0.999 ? ` · RES ${Math.round(renderScale * 100)}%` : '';
-    this.fpsEl.textContent = `${Math.round(fps)} FPS · ${ms.toFixed(1)} ms${res}`;
+    this.fpsLine.textContent = `${Math.round(fps)} FPS · ${ms.toFixed(1)} ms${res}`;
     this.fpsEl.classList.toggle('warn', fps < 50 && fps >= 28);
     this.fpsEl.classList.toggle('bad', fps < 28);
+    if (perf && this.settings.perf) this.perfEl.innerHTML = this.perfHtml(perf, ms);
+  }
+
+  private perfHtml(p: PerfInfo, frameMs: number): string {
+    const r = p.report;
+    // bars are scaled to the frame time, so the longest bar shows where the frame goes
+    const scale = Math.max(frameMs, r.gpuTotal, r.cpuTotal, 1);
+    const row = (name: string, v: number, cls = '') =>
+      `<div class="pr ${cls}"><span class="pn">${esc(name)}</span><span class="pv">${v.toFixed(2)}</span>` +
+      `<span class="pb"><i style="width:${Math.min(100, (v / scale) * 100).toFixed(1)}%"></i></span></div>`;
+    let h = `<div class="ph">${p.quality.toUpperCase()} · ${p.width}×${p.height} · ${Math.round(r.calls)} draws · ${(r.triangles / 1000).toFixed(0)}k tris</div>`;
+    if (p.gpu) h += `<div class="ph dim">${esc(p.gpu)}</div>`;
+    if (r.gpuTimers) {
+      h += `<div class="ps">GPU <b>${r.gpuTotal.toFixed(2)} ms</b></div>`;
+      for (const [k, v] of r.gpu) h += row(k, v, 'g');
+    } else h += '<div class="ps dim">GPU timers not available in this browser</div>';
+    h += `<div class="ps">CPU <b>${r.cpuTotal.toFixed(2)} ms</b></div>`;
+    for (const [k, v] of r.cpu) h += row(k, v, 'c');
+    const busy = Math.max(r.gpuTotal, r.cpuTotal);
+    const verdict = !r.gpuTimers ? '' : r.gpuTotal > r.cpuTotal * 1.2 && r.gpuTotal > frameMs * 0.6 ? 'Limited by the GPU'
+      : r.cpuTotal > frameMs * 0.6 ? 'Limited by the CPU' : busy < frameMs * 0.6 ? 'Waiting on the display or browser' : '';
+    if (verdict) h += `<div class="ph">${verdict}</div>`;
+    return h;
   }
 
   /** Positions the target bracket; x/y in CSS px, or null when off-screen with an edge angle. */

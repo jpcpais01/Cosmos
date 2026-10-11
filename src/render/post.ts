@@ -4,6 +4,7 @@ import {
   type Texture, type WebGLRenderer,
 } from 'three';
 import { MATH } from './glsl';
+import type { FrameProfiler } from './profiler';
 
 const VERT = /* glsl */ `
 varying vec2 vUv;
@@ -416,6 +417,7 @@ export class PostPipeline {
   private ldr: WebGLRenderTarget;
   private fxaa: ShaderMaterial;
   private aa = false;
+  profiler?: FrameProfiler;
   private width = 1;
   private height = 1;
 
@@ -511,6 +513,7 @@ export class PostPipeline {
     const r = this.renderer;
     const autoClear = r.autoClear;
     r.autoClear = false;
+    this.profiler?.gpu('Bloom & exposure');
     // bloom downsample chain
     let src: Texture = this.hdr.texture;
     let sw = this.width, sh = this.height;
@@ -563,6 +566,7 @@ export class PostPipeline {
     u.uChaos.value = p.chaos;
     u.uSeed.value = p.seed;
     u.uShake.value = p.shake;
+    this.profiler?.gpu(this.aa ? 'Final image + AA' : 'Final image');
     if (this.aa) {
       this.pass(this.comp, this.ldr);
       this.fxaa.uniforms.uSrc.value = this.ldr.texture;
