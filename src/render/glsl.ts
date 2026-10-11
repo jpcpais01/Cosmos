@@ -61,22 +61,58 @@ vec4 sampleEquirect(sampler2D t, vec2 uv) {
   bool useB = abs(dxB.x) + abs(dyB.x) < abs(dxA.x) + abs(dyA.x);
   return textureGrad(t, uv, useB ? dxB : dxA, useB ? dyB : dyA);
 }
-// Whole-globe map plus a high-resolution window (rect = u0, v0, width, height in equirect uv)
-// holding only the tiles around where you are looking; blends to the globe map at its edges.
-vec4 sampleLayered(sampler2D t, sampler2D w, vec4 rect, float on, vec2 uv) {
+// Screen-space gradients of an equirect uv, from whichever of two longitude parameterisations
+// has no seam jump at this pixel. Shared by every map lookup of a pixel.
+void equirectGrad(vec2 uv, out vec2 dx, out vec2 dy) {
   vec2 uvB = vec2(fract(uv.x + 0.5) - 0.5, uv.y);
   vec2 dxA = dFdx(uv), dyA = dFdy(uv);
   vec2 dxB = dFdx(uvB), dyB = dFdy(uvB);
   bool useB = abs(dxB.x) + abs(dyB.x) < abs(dxA.x) + abs(dyA.x);
-  vec2 dx = useB ? dxB : dxA, dy = useB ? dyB : dyA;
-  vec4 base = textureGrad(t, uv, dx, dy);
-  if (on < 0.5) return base;
-  vec2 l = vec2(fract(uv.x - rect.x), uv.y - rect.y) / rect.zw;
-  vec2 e = min(l, 1.0 - l);
-  float f = (rect.z > 0.999 ? 1.0 : smoothstep(0.0, 0.05, e.x)) * (rect.w > 0.999 ? 1.0 : smoothstep(0.0, 0.05, e.y));
+  dx = useB ? dxB : dxA;
+  dy = useB ? dyB : dyA;
+}
+// Smooth (B-spline) bicubic filtering from four bilinear taps of mip 0.
+vec4 textureBicubic(sampler2D t, vec2 uv, vec2 size) {
+  vec2 p = uv * size - 0.5;
+  vec2 i = floor(p);
+  vec2 f = p - i;
+  vec2 f2 = f * f, f3 = f2 * f;
+  vec2 w0 = (1.0 - 3.0 * f + 3.0 * f2 - f3) / 6.0;
+  vec2 w1 = (4.0 - 6.0 * f2 + 3.0 * f3) / 6.0;
+  vec2 w2 = (1.0 + 3.0 * f + 3.0 * f2 - 3.0 * f3) / 6.0;
+  vec2 w3 = f3 / 6.0;
+  vec2 g0 = w0 + w1, g1 = w2 + w3;
+  vec2 c0 = (i - 0.5 + w1 / g0) / size;
+  vec2 c1 = (i + 1.5 + w3 / g1) / size;
+  return g0.y * (g0.x * textureLod(t, vec2(c0.x, c0.y), 0.0) + g1.x * textureLod(t, vec2(c1.x, c0.y), 0.0))
+       + g1.y * (g0.x * textureLod(t, vec2(c0.x, c1.y), 0.0) + g1.x * textureLod(t, vec2(c1.x, c1.y), 0.0));
+}
+// Filtered lookup that switches to bicubic once texels are magnified past ~2.5 pixels, where
+// plain bilinear shows its blocky diamond pattern.
+vec4 textureMag(sampler2D t, vec2 uv, vec2 dx, vec2 dy) {
+  vec2 size = vec2(textureSize(t, 0));
+  float fp = max(length(dx * size), length(dy * size));
+  float k = smoothstep(0.55, 0.35, fp);
+  vec4 lin = k < 1.0 ? textureGrad(t, uv, dx, dy) : vec4(0.0);
+  if (k <= 0.0) return lin;
+  vec4 cub = textureBicubic(t, uv, size);
+  return k >= 1.0 ? cub : mix(lin, cub, k);
+}
+// Whole-globe map plus a high-resolution window (rect = u0, v0, width, height in equirect uv)
+// holding only the tiles around where you are looking; blends to the globe map at its edges.
+// Inside the window the globe map is not read at all.
+vec4 sampleLayered(sampler2D t, sampler2D w, vec4 rect, float on, vec2 uv, vec2 dx, vec2 dy) {
+  float f = 0.0;
+  vec2 l = vec2(0.0);
+  if (on > 0.5) {
+    l = vec2(fract(uv.x - rect.x), uv.y - rect.y) / rect.zw;
+    vec2 e = min(l, 1.0 - l);
+    f = (rect.z > 0.999 ? 1.0 : smoothstep(0.0, 0.05, e.x)) * (rect.w > 0.999 ? 1.0 : smoothstep(0.0, 0.05, e.y));
+  }
+  vec4 base = f < 1.0 ? textureMag(t, uv, dx, dy) : vec4(0.0);
   if (f <= 0.0) return base;
-  vec4 hi = textureGrad(w, l, dx / rect.zw, dy / rect.zw);
-  return mix(base, hi, f);
+  vec4 hi = textureMag(w, l, dx / rect.zw, dy / rect.zw);
+  return f >= 1.0 ? hi : mix(base, hi, f);
 }
 `;
 
