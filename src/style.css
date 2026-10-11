@@ -1302,6 +1302,14 @@ kbd {
 .map {
   background: #02050a;
 }
+/* solid panels: a blur behind them would be recomputed every frame over the moving map */
+.map .panel {
+  background: rgba(6, 12, 20, 0.9);
+  border-color: rgba(95, 212, 255, 0.16);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+}
 .map-canvas {
   position: absolute;
   inset: 0;
@@ -1349,7 +1357,9 @@ kbd {
 }
 .map-body,
 .map-moon {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   width: 100%;
   text-align: left;
   font-family: var(--font);
@@ -1370,10 +1380,29 @@ kbd {
   color: var(--muted);
   padding: 2px 8px 2px 20px;
 }
+.map-body::before,
+.map-moon::before {
+  content: '';
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--dot, #fff);
+}
+.map-moon::before {
+  width: 5px;
+  height: 5px;
+  opacity: 0.8;
+}
 .map-body:hover,
 .map-moon:hover {
-  background: rgba(95, 212, 255, 0.12);
+  background: rgba(95, 212, 255, 0.1);
   color: #fff;
+}
+.map-body.on,
+.map-moon.on {
+  background: rgba(255, 179, 71, 0.14);
+  color: var(--amber);
 }
 .map-info {
   position: absolute;

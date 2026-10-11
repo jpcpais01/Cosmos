@@ -642,7 +642,8 @@ async function main(): Promise<void> {
       const avg = frameAcc / frameN;
       frameAcc = 0;
       frameN = 0;
-      if (t - lastScaleChange > 3 && !params.has('nodyn') && settings.resolution === 'auto') {
+      // the map's cheap frames say nothing about the 3D scene's cost
+      if (t - lastScaleChange > 3 && !params.has('nodyn') && settings.resolution === 'auto' && !map.open) {
         if (avg > 1 / 42 && dynScale > 0.55) {
           dynScale = Math.max(0.55, dynScale - 0.15);
           lastScaleChange = t;
@@ -685,6 +686,16 @@ async function main(): Promise<void> {
     if (fi.throttleDelta !== 0 || fi.brake) hud.syncTouchThrottle(ship.throttle);
     warp.update(dt);
     prof.cpu('Flight & orbits');
+
+    if (map.open) {
+      // the map covers the whole screen: skip the 3D scene, cockpit screens and HUD while it's up
+      sound.update(ship.throttle, fi.boost, warp.spool, warp.intensity, rig.mode === 'cockpit');
+      if (input.pointerLocked) input.releaseLock();
+      map.draw(simMs, t);
+      prof.cpu('Map & minimap');
+      prof.endFrame();
+      return;
+    }
 
     // camera
     const look = map.open ? ([0, 0] as [number, number]) : input.consumeLook();

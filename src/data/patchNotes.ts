@@ -11,6 +11,15 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     date: '2026-10-11',
+    title: 'A fast, cleaner map',
+    notes: [
+      'The map opens and pans smoothly: the 3D scene pauses behind it, and lines far off screen are no longer drawn.',
+      'New look: a deep-space backdrop, orbits tinted by each planet, hover highlights, and the selected body marked in the list.',
+      'Orbit lines always run exactly through their planet or moon, even fully zoomed in.',
+    ],
+  },
+  {
+    date: '2026-10-11',
     title: 'Reverse thrust',
     notes: [
       'The ship can now fly backwards, at up to half its forward speed and with half the acceleration.',
