@@ -62,6 +62,8 @@ Import the repository in Vercel. It detects Vite, runs `npm run build` and serve
 
 The service worker precaches about 3 MB: the app shell, the ship, the star catalogue and the small Milky Way map. Planet maps are cached the first time they load, so places you have visited work offline.
 
+The page itself is always fetched from the network when you are online, so a new deploy shows up on the next load, including in the installed app. If a new version is deployed while the game is open, the update button in the top-right toolbar glows; click it to load the new version.
+
 ## Performance
 
 - Quality presets (Low, Medium, High, Ultra in Settings) set the render resolution, MSAA, the largest texture tier and the shadow map size. The default is picked from the device.

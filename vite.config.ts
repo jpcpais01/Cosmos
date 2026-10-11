@@ -39,13 +39,26 @@ export default defineConfig({
         ],
       },
       workbox: {
-        // app shell + the always-needed data; planet maps are cached on first use
-        globPatterns: ['**/*.{js,css,html,svg,ico}', 'icons/*.png', 'data/stars.bin', 'models/*', 'textures/sky/milkyway_2048.webp'],
+        // app shell + the always-needed data; planet maps are cached on first use.
+        // index.html is left out: it comes from the network whenever online (below), so a new
+        // deploy shows up on the next load instead of one load later.
+        globPatterns: ['**/*.{js,css,svg,ico}', 'icons/*.png', 'data/stars.bin', 'models/*', 'textures/sky/milkyway_2048.webp'],
         globIgnores: ['**/textures/**/!(milkyway_2048).webp'],
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
-        navigateFallback: 'index.html',
+        navigateFallback: null,
         cleanupOutdatedCaches: true,
         runtimeCaching: [
+          {
+            urlPattern: ({ request }) => request.mode === 'navigate',
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'cosmos-pages',
+              networkTimeoutSeconds: 4,
+              matchOptions: { ignoreSearch: true },
+              expiration: { maxEntries: 4 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
           {
             urlPattern: ({ url }) => url.pathname.startsWith('/textures/'),
             handler: 'CacheFirst',

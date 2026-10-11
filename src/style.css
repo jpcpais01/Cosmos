@@ -181,6 +181,16 @@ body {
 .btn.icon.off {
   color: rgba(220, 235, 255, 0.35);
 }
+.btn.icon.ready {
+  color: #8ff0ff;
+  border-color: rgba(120, 230, 255, 0.85);
+  animation: update-pulse 1.6s ease-in-out infinite;
+}
+@keyframes update-pulse {
+  50% {
+    box-shadow: 0 0 14px rgba(110, 225, 255, 0.75);
+  }
+}
 .btn.small {
   padding: 3px 8px;
   font-size: 12px;
