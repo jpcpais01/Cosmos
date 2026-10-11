@@ -11,6 +11,15 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     date: '2026-10-11',
+    title: 'See-through warp',
+    notes: [
+      'The warp is see-through now. The white glare when it engages is gone, and so is the milky haze from the bent starlight. Space still ripples and bends the same way.',
+      'Stronger chromatic aberration, with sudden glitchy spikes that hit with each jolt of the shake.',
+      'The warp shake is stronger.',
+    ],
+  },
+  {
+    date: '2026-10-11',
     title: 'No work wasted behind the dashboard',
     notes: [
       'From the cockpit, the sky and the planets are no longer drawn in the part of the screen the dashboard, the nose and the canopy frame cover. That is about a quarter of the view in a normal seat, and it skips the most expensive pixels when a planet fills the lower half of the screen.',

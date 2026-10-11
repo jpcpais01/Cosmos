@@ -345,7 +345,9 @@ void main() {
     this.viewProj.multiplyMatrices(proj, _view.copy(rot).invert());
     // projection: x_ndc = P00 * x / -z  ->  tan of the half-angles
     (bu.uTan.value as Vector2).set(1 / proj.elements[0], 1 / proj.elements[5]);
-    bu.uIntensity.value = 0.1 * brightness;
+    // in warp the Doppler-boosted Milky Way, squeezed forward and bent by the warp lens, would wash the view
+    // out to a milky grey: dim it so the tunnel stays dark and see-through
+    bu.uIntensity.value = 0.1 * brightness * (1 - 0.75 * Math.min(1, warp));
     bu.uPxPerRad.value = 0.5 * viewportPx.y * proj.elements[5];
     bu.uPx.value = px;
     bu.uStarGain.value = brightness * (1 - Math.min(1, warp));
@@ -355,8 +357,8 @@ void main() {
     (su.uViewProj.value as Matrix4).copy(this.viewProj);
     (su.uViewport.value as Vector2).copy(viewportPx);
     su.uPx.value = px;
-    // the warp tunnel takes over the view: stars fade out rather than streaking past
-    su.uBrightness.value = brightness * (1 - Math.min(1, warp));
+    // in warp the stars dim (never streak) but stay faintly visible through the see-through tunnel
+    su.uBrightness.value = brightness * (1 - 0.6 * Math.min(1, warp));
     (su.uVel.value as Vector3).copy(vel);
     su.uBeta.value = beta;
     // skip the stars the vertex shader would drop as too faint (I < 0.004, with up to 3x Doppler boost);

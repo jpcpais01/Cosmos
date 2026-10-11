@@ -843,7 +843,7 @@ async function main(): Promise<void> {
     prevWarpState = warp.state;
     const flick = 1 + fNorm * (0.5 * Math.sin(t * 7.3 + warpSeed * 20) * Math.sin(t * 3.1 + warpSeed * 9) + 2.5 * Math.max(0, Math.sin(t * 17 + warpSeed * 40)) ** 12);
     shipView.warpLight.color.setHSL(0.6, 0.12, 0.75);
-    shipView.warpLight.intensity = (warp.intensity * 8 + warp.spool * 6 + warp.flash * 20) * flick * (cockpit ? 0.8 : 1) * eg;
+    shipView.warpLight.intensity = (warp.intensity * 5 + warp.spool * 3 + warp.flash * 5) * flick * (cockpit ? 0.8 : 1) * eg;
     prof.cpu('Ship & lighting');
     mfd.update(dt, simMs, cockpit);
     prof.cpu('Cockpit screens');
@@ -887,7 +887,7 @@ async function main(): Promise<void> {
     const warpVis = warp.intensity * (0.55 + 0.45 * fNorm);
     post.render({
       exposure: 1.15 * distExposure,
-      adaptStrength: 0.45 * dbg.adapt * (1 - 0.6 * warp.intensity),
+      adaptStrength: 0.45 * dbg.adapt * (1 - 0.85 * warp.intensity),
       bloomStrength: (0.045 + warpVis * 0.02) * dbg.bloom,
       time: t,
       dt,
@@ -902,9 +902,11 @@ async function main(): Promise<void> {
       bubble: Math.max(warp.spool * 0.55, warp.intensity * (0.6 + 0.4 * fNorm)),
       shake: Math.max(warp.shake, warp.intensity * fNorm * 0.18),
       spool: warp.spool,
-      rays: Math.max(warp.spool * 0.7, warpVis),
+      rays: Math.max(warp.spool * 0.35, warpVis),
       chaos: fNorm,
       seed: warpSeed,
+      spike: Math.max(rig.spike.amount, warp.flash * 0.9),
+      spikeAngle: rig.spike.angle,
     });
     prof.gpuEnd();
     prof.cpu('Render calls');
