@@ -66,7 +66,7 @@ The page itself is always fetched from the network when you are online, so a new
 
 ## Performance
 
-- Quality presets (Low, Medium, High, Ultra in Settings) set the render resolution, MSAA, the largest texture tier and the shadow map size. The default is picked from the device.
+- Quality presets (Low, Medium, High, Ultra in Settings) set the render resolution, FXAA with light sharpening (Medium and up), the largest texture tier and the shadow map size. The default is picked from the device. The HDR buffer is never multisampled: three.js resolves an MSAA target after every render call, which cost far more than it gave.
 - Dynamic resolution lowers the render scale when the frame rate drops. Add `?nodyn` to turn it off.
 - Planets are single-quad ray-traced impostors rather than dense meshes.
 - The star field is one instanced draw.

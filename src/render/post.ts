@@ -265,7 +265,90 @@ void main() {
   outc *= vig;
   float n = hash12(gl_FragCoord.xy + fract(uTime * 13.7) * 431.0);
   outc += (n - 0.5) * (1.6 / 255.0);
-  gl_FragColor = vec4(outc, 1.0);
+  // alpha carries luma for the anti-aliasing pass (ignored when drawing straight to the screen)
+  gl_FragColor = vec4(outc, dot(outc, vec3(0.299, 0.587, 0.114)));
+}`;
+
+/*
+ * FXAA (after Lottes' FXAA 3.11, quality preset) on the final display image, plus a light
+ * sharpen on smooth areas so fine surface detail stays crisp. One cheap full-screen pass:
+ * far less work than multisampling the half-float HDR buffer, which cost most of the frame.
+ */
+const FXAA = /* glsl */ `
+varying vec2 vUv;
+uniform sampler2D uSrc; // display colour, luma in alpha
+uniform vec2 uTexel;
+uniform float uSharpen;
+float lum(vec2 o) { return texture(uSrc, vUv + o * uTexel).a; }
+void main() {
+  vec4 cM = texture(uSrc, vUv);
+  float lM = cM.a;
+  float lN = lum(vec2(0.0, 1.0)), lS = lum(vec2(0.0, -1.0)), lE = lum(vec2(1.0, 0.0)), lW = lum(vec2(-1.0, 0.0));
+  float lMax = max(lM, max(max(lN, lS), max(lE, lW)));
+  float lMin = min(lM, min(min(lN, lS), min(lE, lW)));
+  float range = lMax - lMin;
+  if (range < max(0.0312, lMax * 0.125)) {
+    // no edge: unsharp mask on luma, bounded by the local contrast
+    float d = (lM - 0.25 * (lN + lS + lE + lW)) * uSharpen * 2.0;
+    gl_FragColor = vec4(cM.rgb + clamp(d, -range, range), 1.0);
+    return;
+  }
+  float lNW = lum(vec2(-1.0, 1.0)), lNE = lum(vec2(1.0, 1.0)), lSW = lum(vec2(-1.0, -1.0)), lSE = lum(vec2(1.0, -1.0));
+  float lNS = lN + lS, lWE = lW + lE;
+  float lLeft = lNW + lSW, lRight = lNE + lSE, lTop = lNW + lNE, lBottom = lSW + lSE;
+  float edgeH = abs(-2.0 * lW + lLeft) + abs(-2.0 * lM + lNS) * 2.0 + abs(-2.0 * lE + lRight);
+  float edgeV = abs(-2.0 * lN + lTop) + abs(-2.0 * lM + lWE) * 2.0 + abs(-2.0 * lS + lBottom);
+  bool horz = edgeH >= edgeV;
+  float l1 = horz ? lS : lW;
+  float l2 = horz ? lN : lE;
+  float g1 = l1 - lM, g2 = l2 - lM;
+  bool steep1 = abs(g1) >= abs(g2);
+  float gScaled = 0.25 * max(abs(g1), abs(g2));
+  float stepLen = horz ? uTexel.y : uTexel.x;
+  float lAvgLocal = 0.5 * (l2 + lM);
+  if (steep1) {
+    stepLen = -stepLen;
+    lAvgLocal = 0.5 * (l1 + lM);
+  }
+  vec2 cur = vUv;
+  if (horz) cur.y += stepLen * 0.5;
+  else cur.x += stepLen * 0.5;
+  vec2 off = horz ? vec2(uTexel.x, 0.0) : vec2(0.0, uTexel.y);
+  vec2 uv1 = cur - off, uv2 = cur + off;
+  float e1 = texture(uSrc, uv1).a - lAvgLocal;
+  float e2 = texture(uSrc, uv2).a - lAvgLocal;
+  bool r1 = abs(e1) >= gScaled, r2 = abs(e2) >= gScaled;
+  float q = 1.0;
+  for (int i = 0; i < 10; i++) {
+    if (r1 && r2) break;
+    q = i < 3 ? 1.0 : i < 6 ? 1.5 : i < 8 ? 2.0 : 4.0;
+    if (!r1) {
+      uv1 -= off * q;
+      e1 = texture(uSrc, uv1).a - lAvgLocal;
+      r1 = abs(e1) >= gScaled;
+    }
+    if (!r2) {
+      uv2 += off * q;
+      e2 = texture(uSrc, uv2).a - lAvgLocal;
+      r2 = abs(e2) >= gScaled;
+    }
+  }
+  float d1 = horz ? vUv.x - uv1.x : vUv.y - uv1.y;
+  float d2 = horz ? uv2.x - vUv.x : uv2.y - vUv.y;
+  bool near1 = d1 < d2;
+  float edgeLen = d1 + d2;
+  float pixOff = 0.5 - min(d1, d2) / edgeLen;
+  bool correct = ((near1 ? e1 : e2) < 0.0) != (lM < lAvgLocal);
+  float finalOff = correct ? pixOff : 0.0;
+  // sub-pixel aliasing (thin features), kept gentle so textures are not smeared
+  float lAvg = (2.0 * (lNS + lWE) + lLeft + lRight) / 12.0;
+  float sub = clamp(abs(lAvg - lM) / range, 0.0, 1.0);
+  sub = (-2.0 * sub + 3.0) * sub * sub;
+  finalOff = max(finalOff, sub * sub * 0.5);
+  vec2 uv = vUv;
+  if (horz) uv.y += finalOff * stepLen;
+  else uv.x += finalOff * stepLen;
+  gl_FragColor = vec4(texture(uSrc, uv).rgb, 1.0);
 }`;
 
 export interface PostParams {
@@ -317,13 +400,22 @@ export class PostPipeline {
   private up: ShaderMaterial;
   private adaptMat: ShaderMaterial;
   private comp: ShaderMaterial;
+  /** Final display image, input of the anti-aliasing pass. */
+  private ldr: WebGLRenderTarget;
+  private fxaa: ShaderMaterial;
+  private aa = false;
   private width = 1;
   private height = 1;
 
-  constructor(private renderer: WebGLRenderer, samples: number) {
+  constructor(private renderer: WebGLRenderer) {
+    // Never multisampled: three.js resolves an MSAA target (colour and depth) after every render() call,
+    // four times a frame here, which made medium and higher run several times slower than low.
     this.hdr = new WebGLRenderTarget(1, 1, {
-      type: HalfFloatType, format: RGBAFormat, depthBuffer: true, stencilBuffer: false, samples,
+      type: HalfFloatType, format: RGBAFormat, depthBuffer: true, stencilBuffer: false,
       minFilter: LinearFilter, magFilter: LinearFilter, generateMipmaps: false,
+    });
+    this.ldr = new WebGLRenderTarget(1, 1, {
+      format: RGBAFormat, depthBuffer: false, minFilter: LinearFilter, magFilter: LinearFilter, generateMipmaps: false,
     });
     for (let i = 0; i < MIPS; i++) {
       this.mips.push(new WebGLRenderTarget(1, 1, {
@@ -356,6 +448,8 @@ export class PostPipeline {
         uBubble: { value: 0 }, uShake: { value: 0 }, uSpool: { value: 0 }, uRays: { value: 0 }, uChaos: { value: 0 }, uSeed: { value: 0 },
       },
     });
+    this.fxaa = new ShaderMaterial({ vertexShader: VERT, fragmentShader: FXAA, depthTest: false, depthWrite: false, blending: NoBlending,
+      uniforms: { uSrc: { value: null }, uTexel: { value: new Vector2() }, uSharpen: { value: 0 } } });
     this.quad = new Mesh(tri, this.comp);
     this.quad.frustumCulled = false;
     this.scene.add(this.quad);
@@ -365,6 +459,7 @@ export class PostPipeline {
     this.width = w;
     this.height = h;
     this.hdr.setSize(w, h);
+    if (this.aa) this.ldr.setSize(w, h);
     this.bg.setSize(Math.max(1, w >> 1), Math.max(1, h >> 1));
     let mw = w, mh = h;
     for (const m of this.mips) {
@@ -374,9 +469,12 @@ export class PostPipeline {
     }
   }
 
-  setSamples(samples: number): void {
-    this.hdr.samples = samples;
-    this.hdr.dispose();
+  /** Anti-aliasing pass on or off; sharpen (0..1) adds crispness to smooth areas. */
+  setAA(on: boolean, sharpen: number): void {
+    this.aa = on;
+    this.fxaa.uniforms.uSharpen.value = sharpen;
+    if (on) this.ldr.setSize(this.width, this.height);
+    else this.ldr.setSize(1, 1);
   }
 
   /** Copies the HDR frame rendered so far into bg, then makes hdr the render target again. */
@@ -453,7 +551,12 @@ export class PostPipeline {
     u.uChaos.value = p.chaos;
     u.uSeed.value = p.seed;
     u.uShake.value = p.shake;
-    this.pass(this.comp, null);
+    if (this.aa) {
+      this.pass(this.comp, this.ldr);
+      this.fxaa.uniforms.uSrc.value = this.ldr.texture;
+      (this.fxaa.uniforms.uTexel.value as Vector2).set(1 / this.width, 1 / this.height);
+      this.pass(this.fxaa, null);
+    } else this.pass(this.comp, null);
     r.autoClear = autoClear;
   }
 }
