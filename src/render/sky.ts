@@ -115,7 +115,6 @@ uniform float uPx;
 uniform float uBrightness;
 uniform vec3 uVel;
 uniform float uBeta;
-uniform float uStreak;
 varying vec3 vColor;
 varying vec2 vLocal;
 varying float vLen;
@@ -132,29 +131,22 @@ void main() {
   float I = uBrightness * 1.5 * pow(10.0, -0.4 * 0.58 * mag);
   vec3 col = bvToRgb(bv);
   vec3 d0 = d;
-  vec3 d1 = d;
-  if (uBeta > 0.0 || uStreak > 0.0) {
+  if (uBeta > 0.0) {
     d0 = aberrate(d, uVel, uBeta);
-    d1 = aberrate(d, uVel, max(uBeta - uStreak, -0.995));
     float D = doppler(d0, uVel, uBeta);
     col *= dopplerTint(D);
     I *= clamp(D * D, 0.05, 3.0);
   }
-  float w0, w1;
+  float w0;
   vec2 p0 = toScreen(d0, w0);
-  vec2 p1 = toScreen(d1, w1);
-  // while streaking, faint stars would only add up to a grey veil: keep the naked-eye ones
-  if (I < 0.004 + uStreak * 0.6 || w0 <= 0.0) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
-  if (w1 <= 0.0) p1 = p0 + normalize(p0 + 1e-3) * uViewport.x;
-  vec2 axis = p1 - p0;
-  float len = length(axis);
-  vec2 dirA = len > 1e-3 ? axis / len : vec2(1.0, 0.0);
-  vec2 nrm = vec2(-dirA.y, dirA.x);
+  if (I < 0.004 || w0 <= 0.0) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
+  // stars are round points; the quad keeps a length term (always 0 now) so the fragment shader stays generic
+  float len = 0.0;
+  vec2 dirA = vec2(1.0, 0.0);
+  vec2 nrm = vec2(0.0, 1.0);
   float sigma = uPx * (0.62 + 0.5 * smoothstep(0.6, 12.0, I));
   float r = sigma * 3.2;
-  // spread energy along the streak
-  float energy = I * sigma / (sigma + len * 0.35);
-  vColor = col * energy;
+  vColor = col * I;
   vLen = len;
   vSigma = sigma;
   vec2 corner = position.xy; // x: 0..1 along, y: -1..1 across (with end caps)
@@ -186,7 +178,6 @@ void main() {
         uBrightness: { value: 1 },
         uVel: { value: new Vector3(0, 0, -1) },
         uBeta: { value: 0 },
-        uStreak: { value: 0 },
       },
     });
   }
@@ -224,7 +215,7 @@ void main() {
 
   update(
     camQuat: Quaternion, proj: Matrix4, viewportPx: Vector2, px: number, brightness: number,
-    vel: Vector3, beta: number, streak: number,
+    vel: Vector3, beta: number, warp: number,
   ): void {
     const view = new Matrix4().makeRotationFromQuaternion(camQuat).invert();
     this.viewProj.multiplyMatrices(proj, view);
@@ -239,9 +230,9 @@ void main() {
     (su.uViewProj.value as Matrix4).copy(this.viewProj);
     (su.uViewport.value as Vector2).copy(viewportPx);
     su.uPx.value = px;
-    su.uBrightness.value = brightness;
+    // the warp tunnel takes over the view: stars fade out rather than streaking past
+    su.uBrightness.value = brightness * (1 - Math.min(1, warp));
     (su.uVel.value as Vector3).copy(vel);
     su.uBeta.value = beta;
-    su.uStreak.value = streak;
   }
 }
