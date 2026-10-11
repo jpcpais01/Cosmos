@@ -648,6 +648,8 @@ async function main(): Promise<void> {
     fi.pitch += hud.stick.y * (settings.invertY ? -1 : 1) * 0.9;
     fi.yaw -= hud.stick.x * 0.9;
     fi.roll += hud.touchRoll;
+    fi.boost ||= hud.touchBoost;
+    fi.brake ||= hud.touchBrake;
     if (hud.touchThrottle !== null) {
       ship.throttle = hud.touchThrottle;
       hud.touchThrottle = null;
@@ -659,6 +661,7 @@ async function main(): Promise<void> {
 
     // camera
     const look = map.open ? ([0, 0] as [number, number]) : input.consumeLook();
+    if (input.consumeRecenter()) rig.resetLook();
     rig.update(dt, ship.quat, look, input.dragging, warp.intensity, warp.shake, t);
     ship.absPos(camAbs).addScaledVector(rig.offset, 0.001);
     camQ.copy(rig.quat);

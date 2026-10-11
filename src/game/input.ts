@@ -17,11 +17,9 @@ export class Input {
   onLockChange: (locked: boolean) => void = () => undefined;
   /** called when the browser refuses to capture the mouse */
   onLockError: () => void = () => undefined;
-  /** virtual joystick from the touch UI, -1..1 */
-  touchStick = { x: 0, y: 0 };
-  touchThrottle: number | null = null;
   sensitivity = 0.0022;
   invertY = false;
+  private recenter = false;
   private pressed: string[] = [];
 
   constructor(private el: HTMLElement) {
@@ -68,23 +66,48 @@ export class Input {
       this.onLockChange(locked);
     });
     document.addEventListener('pointerlockerror', () => this.onLockError());
-    // touch free-look on the canvas
-    let last: { x: number; y: number } | null = null;
-    el.addEventListener('touchstart', (e) => {
-      if (e.touches.length === 1) last = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-    }, { passive: true });
-    el.addEventListener('touchmove', (e) => {
-      if (!last || e.touches.length !== 1) return;
-      const t = e.touches[0];
-      this.lookDX += (t.clientX - last.x) * 1.5;
-      this.lookDY += (t.clientY - last.y) * 1.5;
-      last = { x: t.clientX, y: t.clientY };
-      this.dragging = true;
-    }, { passive: true });
-    el.addEventListener('touchend', () => {
-      last = null;
-      this.dragging = false;
+    // touch free-look on the canvas: one finger, tracked on its own so it still works while the
+    // other thumb holds the stick; a double-tap asks for the view to look ahead again
+    let touchId: number | null = null;
+    let last = { x: 0, y: 0 };
+    let moved = 0;
+    let lastTap = 0;
+    el.addEventListener('pointerdown', (e) => {
+      if (e.pointerType !== 'touch' || touchId !== null) return;
+      touchId = e.pointerId;
+      last = { x: e.clientX, y: e.clientY };
+      moved = 0;
     });
+    el.addEventListener('pointermove', (e) => {
+      if (e.pointerId !== touchId) return;
+      const dx = e.clientX - last.x, dy = e.clientY - last.y;
+      this.lookDX += dx * 1.5;
+      this.lookDY += dy * 1.5;
+      moved += Math.abs(dx) + Math.abs(dy);
+      last = { x: e.clientX, y: e.clientY };
+      this.dragging = true;
+    });
+    const touchEnd = (e: PointerEvent) => {
+      if (e.pointerId !== touchId) return;
+      touchId = null;
+      this.dragging = false;
+      if (moved < 10) {
+        const now = performance.now();
+        if (now - lastTap < 320) {
+          this.recenter = true;
+          lastTap = 0;
+        } else lastTap = now;
+      }
+    };
+    el.addEventListener('pointerup', touchEnd);
+    el.addEventListener('pointercancel', touchEnd);
+  }
+
+  /** True once after a double-tap on the scene (touch). */
+  consumeRecenter(): boolean {
+    const r = this.recenter;
+    this.recenter = false;
+    return r;
   }
 
   requestLock(): void {
@@ -131,8 +154,8 @@ export class Input {
     const k = (c: string) => (this.keys.has(c) ? 1 : 0);
     const inv = this.invertY ? -1 : 1;
     const f: FlightInput = {
-      pitch: (k('ArrowDown') - k('ArrowUp')) * 0.8 + this.touchStick.y * inv * 0.9,
-      yaw: (k('KeyA') + k('ArrowLeft') - k('KeyD') - k('ArrowRight')) * 0.8 - this.touchStick.x * 0.9,
+      pitch: (k('ArrowDown') - k('ArrowUp')) * 0.8,
+      yaw: (k('KeyA') + k('ArrowLeft') - k('KeyD') - k('ArrowRight')) * 0.8,
       roll: k('KeyQ') - k('KeyE'),
       mousePitch: -this.mdy * this.sensitivity * inv,
       mouseYaw: -this.mdx * this.sensitivity,

@@ -1618,6 +1618,10 @@ body.touch-ui .tr-more {
   -webkit-backdrop-filter: blur(14px);
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
 }
+/* the open menu sits above the thumb controls */
+body.touch-ui .hud-tr {
+  z-index: 16;
+}
 body.touch-ui .hud-tr.open .tr-more {
   display: grid;
 }
@@ -1736,6 +1740,16 @@ body.touch-ui .troll {
   bottom: calc(152px + var(--safe-b));
   gap: 10px;
 }
+/* only the buttons take touches, so a thumb landing between them still reaches the stick */
+body.touch-ui .troll,
+body.touch-ui .tpedals {
+  pointer-events: none;
+}
+body.touch-ui .troll .btn,
+body.touch-ui .tpedals .btn {
+  pointer-events: auto;
+  touch-action: none;
+}
 body.touch-ui .btn.roll {
   width: 46px;
   height: 46px;
@@ -1762,7 +1776,7 @@ body.touch-ui .tthr {
   right: calc(18px + var(--safe-r));
   bottom: calc(14px + var(--safe-b));
   width: 58px;
-  height: min(210px, 58vh);
+  height: var(--thr-h);
   border-radius: 18px;
   border: 1px solid rgba(255, 255, 255, 0.2);
   background: rgba(8, 16, 28, 0.42);
@@ -1791,6 +1805,110 @@ body.touch-ui .tthr-label {
 }
 body.touch-ui .tthr-label {
   display: block;
+}
+
+.tthr-text {
+  display: none;
+}
+body.touch-ui .tthr-text {
+  display: block;
+  position: absolute;
+  top: 24px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 4px #000;
+  pointer-events: none;
+}
+
+/* boost and brake, held, stacked on top of the throttle: the right thumb's column.
+   The throttle gives up height on short screens so the column clears the toolbar. */
+body.touch-ui {
+  --thr-h: max(130px, min(210px, calc(100vh - 182px - var(--safe-t) - var(--safe-b))));
+}
+body.touch-ui .tpedals {
+  position: absolute;
+  right: calc(18px + var(--safe-r));
+  bottom: calc(14px + var(--thr-h) + 8px + var(--safe-b));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+body.touch-ui .btn.pedal {
+  width: 58px;
+  height: 44px;
+  padding: 0;
+  border-radius: 14px;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  touch-action: none;
+}
+body.touch-ui .btn.pedal.on {
+  color: #fff;
+  border-color: var(--cyan);
+  background: rgba(95, 212, 255, 0.3);
+  box-shadow: 0 0 16px rgba(110, 210, 255, 0.5);
+}
+body.touch-ui .btn.pedal.brake.on {
+  border-color: rgba(255, 170, 100, 0.85);
+  background: rgba(255, 120, 60, 0.3);
+  box-shadow: none;
+}
+
+/* the destination opens the map; ENGAGE without one does too */
+body.touch-ui .warp-target,
+body.touch-ui .warp-eta {
+  cursor: pointer;
+}
+body.touch-ui .engage.idle {
+  opacity: 0.5;
+}
+
+/* the "more" menu names its buttons */
+.btn-name {
+  display: none;
+}
+body.touch-ui .tr-more {
+  grid-template-columns: repeat(3, 76px);
+}
+body.touch-ui .tr-more .btn.icon {
+  width: 76px;
+  height: 60px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+body.touch-ui .tr-more .btn-name {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+/* panels: solid enough to read over the cockpit */
+body.touch-ui .modal {
+  background: rgba(6, 12, 20, 0.92);
+  max-height: calc(100% - 20px - var(--safe-t) - var(--safe-b));
+}
+
+/* finger-sized close buttons, and no hover state stuck on after a tap */
+body.touch-ui .btn.tiny {
+  min-width: 36px;
+  line-height: 32px;
+  font-size: 16px;
+}
+body.touch-ui .btn:not(.primary):not(.danger):not(.on):not(.ready):hover {
+  background: rgba(10, 22, 36, 0.55);
+  border-color: var(--panel-border);
+}
+body.touch-ui .btn:active {
+  background: rgba(95, 212, 255, 0.25);
+  border-color: var(--cyan);
 }
 
 /* short landscape phones */
