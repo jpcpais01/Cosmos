@@ -330,6 +330,9 @@ async function main(): Promise<void> {
     engage();
   };
   $('ui').append(hud.root, map.root);
+  input.canLock = () => !map.open && !hud.panelOpen;
+  input.onLockChange = (on) => hud.setMouseFlight(on);
+  input.onLockError = () => hud.toast('The browser did not hand over the mouse. Right-click again.', 2400);
   applySettings(settings);
 
   warp.onEvent = (e) => {
@@ -765,7 +768,8 @@ async function main(): Promise<void> {
     });
     updateMarkers(tp);
     hud.setReticle(!cockpit && !map.open);
-    if (input.pointerLocked && !map.open && ship.aim.lengthSq() > 1e-8) {
+    if (input.pointerLocked && (map.open || hud.panelOpen)) input.releaseLock();
+    if (input.pointerLocked && !map.open) {
       const focal = (cssH / 2) / Math.tan(MathUtils.degToRad(rig.camera.fov) / 2);
       hud.setAim({ x: -Math.tan(ship.aim.x) * focal, y: -Math.tan(ship.aim.y) * focal });
     } else hud.setAim(null);

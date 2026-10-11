@@ -137,6 +137,7 @@ export class Hud {
   private labelLayer = el('div', 'labels');
   private reticle = el('div', 'reticle');
   private aimEl = el('div', 'aim hidden');
+  private modeEl = el('div', 'mouse-mode');
   readonly locPanel = el('div', 'panel modal hidden');
   readonly settingsPanel = el('div', 'panel modal hidden');
   readonly helpPanel = el('div', 'panel modal hidden');
@@ -184,7 +185,8 @@ export class Hud {
     const bc = el('div', 'hud-bc');
     const thr = el('div', 'thr');
     thr.append(this.thrFill);
-    bc.append(this.speedEl, thr, this.limitEl);
+    bc.append(this.speedEl, thr, this.limitEl, this.modeEl);
+    this.setMouseFlight(false);
 
     // bottom-right: warp
     const br = el('div', 'hud-br panel');
@@ -361,7 +363,7 @@ export class Hud {
       ['Q / E', 'Roll'],
       ['Shift', 'Boost'],
       ['X', 'Brake (throttle to zero)'],
-      ['Right-click', 'Mouse flight: the ship smoothly follows the cursor · Esc to release'],
+      ['Right-click', 'Mouse flight on / off: the ship smoothly follows the mouse; off gives you the pointer back for buttons'],
       ['Left-drag', 'Look around (cockpit) / orbit camera (outside)'],
       ['V', 'Cockpit → chase → far chase view'],
       ['M', 'Solar system map: pick a body or any coordinates'],
@@ -537,6 +539,13 @@ export class Hud {
 
   setReticle(show: boolean): void {
     this.reticle.style.display = show ? '' : 'none';
+  }
+
+  /** Shows whether the mouse is steering the ship or is a normal pointer. */
+  setMouseFlight(on: boolean): void {
+    this.root.classList.toggle('mouse-flight', on);
+    this.modeEl.classList.toggle('on', on);
+    this.modeEl.textContent = on ? 'MOUSE FLIGHT · right-click for pointer' : 'Right-click to steer with the mouse';
   }
 
   /** Mouse-flight aim point, as a CSS pixel offset from the screen centre (null hides it). */

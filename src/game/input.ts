@@ -11,6 +11,12 @@ export class Input {
   dragging = false;
   wheel = 0;
   pointerLocked = false;
+  /** whether right-click may enter mouse flight right now (false while the map or a panel is open) */
+  canLock: () => boolean = () => true;
+  /** called when mouse flight starts or ends */
+  onLockChange: (locked: boolean) => void = () => undefined;
+  /** called when the browser refuses to capture the mouse */
+  onLockError: () => void = () => undefined;
   /** virtual joystick from the touch UI, -1..1 */
   touchStick = { x: 0, y: 0 };
   touchThrottle: number | null = null;
@@ -29,10 +35,16 @@ export class Input {
     window.addEventListener('blur', () => this.keys.clear());
     el.addEventListener('mousedown', (e) => {
       if (e.button === 0 && !this.pointerLocked) this.dragging = true;
-      if (e.button === 2) this.requestLock();
     });
-    el.addEventListener('dblclick', () => this.requestLock());
-    el.addEventListener('contextmenu', (e) => e.preventDefault());
+    // right-click anywhere toggles mouse flight on and off; the browser menu never shows
+    window.addEventListener('mousedown', (e) => {
+      if (e.button !== 2) return;
+      e.preventDefault();
+      this.toggleLock();
+    });
+    window.addEventListener('contextmenu', (e) => {
+      if ((e.target as HTMLElement)?.tagName !== 'INPUT') e.preventDefault();
+    });
     window.addEventListener('mouseup', () => (this.dragging = false));
     window.addEventListener('mousemove', (e) => {
       if (this.pointerLocked) {
@@ -48,8 +60,14 @@ export class Input {
       e.preventDefault();
     }, { passive: false });
     document.addEventListener('pointerlockchange', () => {
-      this.pointerLocked = document.pointerLockElement === el;
+      const locked = document.pointerLockElement === el;
+      if (locked === this.pointerLocked) return;
+      this.pointerLocked = locked;
+      this.mdx = this.mdy = 0;
+      this.dragging = false;
+      this.onLockChange(locked);
     });
+    document.addEventListener('pointerlockerror', () => this.onLockError());
     // touch free-look on the canvas
     let last: { x: number; y: number } | null = null;
     el.addEventListener('touchstart', (e) => {
@@ -70,7 +88,16 @@ export class Input {
   }
 
   requestLock(): void {
-    if (!this.pointerLocked) this.el.requestPointerLock?.();
+    if (document.pointerLockElement === this.el || !this.canLock()) return;
+    // newer browsers return a promise that rejects on failure; pointerlockerror reports it
+    const p = this.el.requestPointerLock?.() as unknown as Promise<void> | undefined;
+    p?.catch?.(() => undefined);
+  }
+
+  toggleLock(): void {
+    // ask the document, not the flag: pointerlockchange can arrive a frame late
+    if (document.pointerLockElement === this.el) document.exitPointerLock();
+    else this.requestLock();
   }
 
   releaseLock(): void {
