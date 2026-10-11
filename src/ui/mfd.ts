@@ -98,11 +98,12 @@ export class Mfd {
     const bx = w - 60, by = 56, bh = h - 90;
     ctx.strokeStyle = DIM;
     ctx.strokeRect(bx, by, 26, bh);
-    ctx.fillStyle = s.throttle > 0.95 ? AMBER : CYAN;
-    ctx.fillRect(bx + 3, by + bh - 3 - (bh - 6) * s.throttle, 20, (bh - 6) * s.throttle);
-    ctx.fillStyle = DIM;
+    const thr = Math.abs(s.throttle);
+    ctx.fillStyle = s.throttle < 0 || thr > 0.95 ? AMBER : CYAN;
+    ctx.fillRect(bx + 3, by + bh - 3 - (bh - 6) * thr, 20, (bh - 6) * thr);
+    ctx.fillStyle = s.throttle < 0 ? AMBER : DIM;
     ctx.font = `500 13px ${FONT}`;
-    ctx.fillText('THR', bx, by + bh + 18);
+    ctx.fillText(s.throttle < 0 ? 'REV' : 'THR', bx, by + bh + 18);
     // altitude & frame
     ctx.fillStyle = CYAN;
     ctx.font = `600 22px ${FONT}`;

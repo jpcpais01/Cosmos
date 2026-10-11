@@ -19,6 +19,8 @@ export interface FlightInput {
 
 export const SUBLIGHT_MAX = 0.05 * C_KMS; // 15,000 km/s
 const V_MIN = 0.01; // 10 m/s
+/** reverse flies at this fraction of forward speed and acceleration */
+export const REVERSE_FRACTION = 0.5;
 
 const _v = new Vector3();
 const _q = new Quaternion();
@@ -36,7 +38,10 @@ export class Ship {
   angVel = new Vector3();
   /** mouse-flight aim point as (yaw, pitch) offsets from the nose, radians; the ship turns to chase it */
   aim = new Vector2();
+  /** -1..1: below zero flies backwards */
   throttle = 0;
+  /** set when the throttle stops at zero on its way through; it stays there until the throttle key is let go */
+  private detent = false;
   /** speed limit currently enforced near bodies (km/s) */
   limit = SUBLIGHT_MAX;
   altitude = Infinity;
@@ -65,11 +70,13 @@ export class Ship {
     return this.vel.length();
   }
 
-  /** Throttle 0..1 -> target speed (log scale). */
+  /** Throttle -1..1 -> signed target speed along the nose (log scale); reverse tops out at half the forward speed. */
   targetSpeed(): number {
-    if (this.throttle <= 0.001) return 0;
-    const vmax = Math.max(this.limit, V_MIN * 2);
-    return V_MIN * Math.pow(vmax / V_MIN, this.throttle);
+    const t = Math.abs(this.throttle);
+    if (t <= 0.001) return 0;
+    const rev = this.throttle < 0;
+    const vmax = Math.max(this.limit * (rev ? REVERSE_FRACTION : 1), V_MIN * 2);
+    return (rev ? -1 : 1) * V_MIN * Math.pow(vmax / V_MIN, t);
   }
 
   /** Surface radius of a body in the direction of a body-relative vector. */
@@ -159,22 +166,33 @@ export class Ship {
     _q.setFromAxisAngle(_axis.set(0, 0, 1), dz);
     this.quat.multiply(_q).normalize();
 
-    // throttle and flight assist
-    this.throttle = Math.min(1, Math.max(0, this.throttle + input.throttleDelta * dt));
-    if (input.brake) this.throttle = Math.max(0, this.throttle - dt * 1.5);
+    // throttle and flight assist; the throttle pauses at zero between forward and reverse
+    const prev = this.throttle;
+    let thr = Math.min(1, Math.max(-1, prev + input.throttleDelta * dt));
+    if (input.throttleDelta === 0) this.detent = false;
+    if ((prev > 0 && thr < 0) || (prev < 0 && thr > 0) || (this.detent && prev === 0)) {
+      thr = 0;
+      this.detent = true;
+    }
+    if (input.brake) thr = Math.sign(thr) * Math.max(0, Math.abs(thr) - dt * 1.5);
+    this.throttle = thr;
     let target = this.targetSpeed();
-    if (input.boost) target = Math.min(Math.max(target * 4, 0.5), this.limit * 2.5, SUBLIGHT_MAX);
+    const rev = target < 0;
+    const scale = rev ? REVERSE_FRACTION : 1;
+    if (input.boost) target = (rev ? -1 : 1) * Math.min(Math.max(Math.abs(target) * 4, 0.5 * scale), this.limit * 2.5 * scale, SUBLIGHT_MAX * scale);
     this.forward(_fwd);
     const desired = _v.copy(_fwd).multiplyScalar(target);
     // exponential approach + a minimum acceleration so small speeds still converge quickly
+    const backing = this.vel.dot(_fwd) < 0;
     const diff = desired.sub(this.vel);
     const dl = diff.length();
-    const accel = Math.max(dl * 1.6, 0.02);
+    // speeding up backwards is half as quick; stopping is not
+    const accel = Math.max(dl * 1.6, 0.02) * (rev && backing ? REVERSE_FRACTION : 1);
     const step = Math.min(dl, accel * dt);
     if (dl > 0) this.vel.addScaledVector(diff, step / dl);
     // hard limiter near surfaces
     const sp = this.vel.length();
-    const hardLimit = this.limit * (input.boost ? 2.5 : 1.15);
+    const hardLimit = this.limit * (input.boost ? 2.5 : 1.15) * (backing ? REVERSE_FRACTION : 1);
     if (sp > hardLimit) this.vel.multiplyScalar(hardLimit / sp);
 
     this.rel.addScaledVector(this.vel, dt);

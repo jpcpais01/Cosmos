@@ -927,6 +927,9 @@ body.intro #ui {
   width: 0;
   background: linear-gradient(90deg, #3aa6ff, #c6ecff);
 }
+.thr-fill.rev {
+  background: linear-gradient(90deg, #ff8a3d, #ffd2a8);
+}
 .thr-fill.warp {
   background: linear-gradient(90deg, #8a7bff, #e2d8ff);
 }
@@ -1508,6 +1511,10 @@ kbd {
   background: linear-gradient(0deg, rgba(58, 166, 255, 0.6), rgba(198, 236, 255, 0.6));
 }
 
+body.touch-ui .tthr-fill.rev {
+  background: linear-gradient(0deg, rgba(255, 120, 60, 0.55), rgba(255, 210, 170, 0.75));
+}
+
 /* 3D scanner, bottom left */
 .minimap {
   position: absolute;
@@ -1864,7 +1871,7 @@ body.touch-ui .tthr-text {
 /* boost and brake, held, stacked on top of the throttle: the right thumb's column.
    The throttle gives up height on short screens so the column clears the toolbar. */
 body.touch-ui {
-  --thr-h: max(130px, min(210px, calc(100vh - 182px - var(--safe-t) - var(--safe-b))));
+  --thr-h: max(120px, min(210px, calc(100vh - 234px - var(--safe-t) - var(--safe-b))));
 }
 body.touch-ui .tpedals {
   position: absolute;
@@ -1889,6 +1896,7 @@ body.touch-ui .btn.pedal.on {
   background: rgba(95, 212, 255, 0.3);
   box-shadow: 0 0 16px rgba(110, 210, 255, 0.5);
 }
+body.touch-ui .btn.pedal.rev.on,
 body.touch-ui .btn.pedal.brake.on {
   border-color: rgba(255, 170, 100, 0.85);
   background: rgba(255, 120, 60, 0.3);

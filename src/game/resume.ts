@@ -122,7 +122,7 @@ export function lastFlightLocation(f: LastFlight): SavedLocation {
 /** Speed and throttle are given back at launch, so the ship holds still behind the title screen. */
 export function resumeMotion(f: LastFlight, ship: Ship): void {
   ship.vel.set(...f.vel);
-  ship.throttle = Math.min(1, Math.max(0, f.throttle));
+  ship.throttle = Math.min(1, Math.max(-1, f.throttle));
 }
 
 export function lastFlightTarget(f: LastFlight): { target: WarpTarget | null; factor: WarpFactor } {
