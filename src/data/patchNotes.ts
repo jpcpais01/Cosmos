@@ -11,6 +11,14 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     date: '2026-10-11',
+    title: 'Clouds are back on Earth',
+    notes: [
+      'Earth has its clouds again, now as part of the planet\'s 8K surface picture: they stay put over the ground instead of drifting as a separate layer, and cast no extra shadows.',
+      'The sea no longer glints through clouds, and city lights are dimmed under them at night.',
+    ],
+  },
+  {
+    date: '2026-10-11',
     title: 'Save your own locations',
     notes: [
       'Press B, or use Save here in the Saved locations panel (L or the pin button), to bookmark where you are, which way you face and the date and time.',
