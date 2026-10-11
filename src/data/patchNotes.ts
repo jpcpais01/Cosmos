@@ -9,10 +9,22 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
-    version: '0.11',
+    version: '0.13',
     date: '2026-10-11',
     title: 'Patch notes',
     notes: ['The title screen now lists what changed in each update.'],
+  },
+  {
+    version: '0.12',
+    date: '2026-10-11',
+    title: 'Warp from the cockpit',
+    notes: ['The warp tunnel stays outside the ship, with only a faint shimmer and a sweep of blue light inside.'],
+  },
+  {
+    version: '0.11',
+    date: '2026-10-11',
+    title: 'Faster graphics',
+    notes: ['Medium, high and ultra quality run fast again, with sharper anti-aliasing.'],
   },
   {
     version: '0.10',
