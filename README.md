@@ -68,7 +68,7 @@ The service worker precaches about 3 MB: the app shell, the ship, the star catal
 - Dynamic resolution lowers the render scale when the frame rate drops. Add `?nodyn` to turn it off.
 - Planets are single-quad ray-traced impostors rather than dense meshes.
 - The star field is one instanced draw.
-- Textures stream in by distance, from 1K up to 8K.
+- Textures stream in by distance, from 1K up to 8K. Close to a surface only the part you can see is loaded at 4K or 8K: those maps are cut into 512 px tiles, and a 2048 px window of tiles follows your view, so a planet never needs more than about 100 MB of graphics memory.
 
 ## Project layout
 

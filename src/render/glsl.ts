@@ -61,6 +61,23 @@ vec4 sampleEquirect(sampler2D t, vec2 uv) {
   bool useB = abs(dxB.x) + abs(dyB.x) < abs(dxA.x) + abs(dyA.x);
   return textureGrad(t, uv, useB ? dxB : dxA, useB ? dyB : dyA);
 }
+// Whole-globe map plus a high-resolution window (rect = u0, v0, width, height in equirect uv)
+// holding only the tiles around where you are looking; blends to the globe map at its edges.
+vec4 sampleLayered(sampler2D t, sampler2D w, vec4 rect, float on, vec2 uv) {
+  vec2 uvB = vec2(fract(uv.x + 0.5) - 0.5, uv.y);
+  vec2 dxA = dFdx(uv), dyA = dFdy(uv);
+  vec2 dxB = dFdx(uvB), dyB = dFdy(uvB);
+  bool useB = abs(dxB.x) + abs(dyB.x) < abs(dxA.x) + abs(dyA.x);
+  vec2 dx = useB ? dxB : dxA, dy = useB ? dyB : dyA;
+  vec4 base = textureGrad(t, uv, dx, dy);
+  if (on < 0.5) return base;
+  vec2 l = vec2(fract(uv.x - rect.x), uv.y - rect.y) / rect.zw;
+  vec2 e = min(l, 1.0 - l);
+  float f = (rect.z > 0.999 ? 1.0 : smoothstep(0.0, 0.05, e.x)) * (rect.w > 0.999 ? 1.0 : smoothstep(0.0, 0.05, e.y));
+  if (f <= 0.0) return base;
+  vec4 hi = textureGrad(w, l, dx / rect.zw, dy / rect.zw);
+  return mix(base, hi, f);
+}
 `;
 
 /** Black-body-ish colour from a B-V index (Ballesteros 2012 temperature + Planckian locus fit), linear sRGB. */

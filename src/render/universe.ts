@@ -6,7 +6,7 @@ import type { BodyState, Ephemeris } from '../sim/ephemeris';
 import { AU_KM } from '../sim/constants';
 import { createPlanetMaterial, MAX_OCCLUDERS } from './planetMaterial';
 import { createBodyPointsMaterial, createRingMaterial, createSunGlowMaterial, createSunMaterial } from './bodyMaterials';
-import { solidTexture, TextureStreamer } from './textures';
+import { solidTexture, TextureStreamer, type Kind } from './textures';
 
 export const SUN_COLOR = new Vector3(1.0, 0.975, 0.94);
 
@@ -40,6 +40,9 @@ const _tmp2 = new Vector3();
 const _w2b = new Matrix3();
 const _m4 = new Matrix4();
 const _fwd = new Vector3();
+const _camB = new Vector3();
+const _fwdB = new Vector3();
+const _focus = new Vector3();
 
 export class Universe {
   readonly scene = new Scene();
@@ -138,6 +141,46 @@ export class Universe {
         if (saturn) (saturn.mat.uniforms.uRingTex.value = t);
       });
     });
+  }
+
+  /**
+   * Body-frame unit direction of the surface point the view is centred on: halfway between the
+   * point straight below the camera and the point the camera looks at (when it looks at the body).
+   * Expects _w2b and _rel to hold this body's frame and offset.
+   */
+  private focusPoint(radius: number, out: Vector3): Vector3 {
+    _camB.copy(_rel).negate().applyMatrix3(_w2b);
+    _fwdB.copy(_fwd).applyMatrix3(_w2b);
+    out.copy(_camB).normalize();
+    const b = _camB.dot(_fwdB);
+    const c = _camB.lengthSq() - radius * radius;
+    const h = b * b - c;
+    if (h > 0 && c > 0) {
+      const t = -b - Math.sqrt(h);
+      if (t > 0) out.add(_tmp2.copy(_camB).addScaledVector(_fwdB, t).normalize()).normalize();
+    }
+    return out;
+  }
+
+  /** Points a body's tile window at (fu, fv) when close enough to need more than the whole-globe map. */
+  private updateWindow(id: string, kind: Kind, name: string, u: Record<string, { value: unknown }>, want: number, fu: number, fv: number, lat: number, now: number): void {
+    const levels = this.textures.tileLevels(id, kind);
+    let level = 0;
+    for (const L of levels) if (L <= want * 1.25) level = L;
+    // the 8K window spans 90 degrees of longitude; near the poles that is too narrow, so use 4K there
+    if (level > 4096 && Math.abs(lat) > 1.0 && levels.includes(4096)) level = 4096;
+    const on = u[`${name}On`];
+    if (!level) {
+      on.value = 0;
+      return;
+    }
+    const w = this.textures.window(id, kind);
+    w.update(fu, fv, level, now);
+    if (w.texture) {
+      u[`${name}W`].value = w.texture;
+      u[`${name}R`].value = w.rect;
+      on.value = 1;
+    } else on.value = 0;
   }
 
   /** Loads the smallest tier of every texture. */
@@ -256,6 +299,23 @@ export class Universe {
           const ta = this.textures.get(id, 'aux', want, now);
           if (ta && u.uAux.value !== ta) u.uAux.value = ta;
         }
+        // high-resolution tiles only around the part of the surface in view
+        if (def.kind !== 'star') {
+          this.focusPoint(def.radius, _focus);
+          const lat = Math.asin(Math.max(-1, Math.min(1, _focus.z)));
+          const fu = Math.atan2(_focus.y, _focus.x) / (2 * Math.PI) + 0.5;
+          const fv = lat / Math.PI + 0.5;
+          // detail needed at that point: the globe width at which one texel covers about one pixel there
+          const surf = Math.max(_tmp2.copy(_focus).multiplyScalar(def.radius).distanceTo(_camB), 1e-3);
+          const near = Math.max(want, ((2 * Math.PI * def.radius) / (surf * this.pixelAngle)) * 0.8);
+          this.updateWindow(id, 'map', 'uMap', u, near, fu, fv, lat, now);
+          if (v.hasNormal) this.updateWindow(id, 'normal', 'uNormal', u, near * 0.6, fu, fv, lat, now);
+          if (v.hasAux) this.updateWindow(id, 'aux', 'uAux', u, near, fu, fv, lat, now);
+        }
+      } else if (def.kind !== 'star') {
+        u.uMapOn.value = 0;
+        if (v.hasNormal) u.uNormalOn.value = 0;
+        if (v.hasAux) u.uAuxOn.value = 0;
       }
 
       // point-of-light representation

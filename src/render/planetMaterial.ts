@@ -1,5 +1,5 @@
 import { ALBEDO_SCALE } from './albedo';
-import { BackSide, CustomBlending, OneFactor, OneMinusSrcAlphaFactor, ShaderMaterial, Texture, Matrix3, Vector2, Vector3 } from 'three';
+import { BackSide, CustomBlending, OneFactor, OneMinusSrcAlphaFactor, ShaderMaterial, Texture, Matrix3, Vector2, Vector3, Vector4 } from 'three';
 import { EQUIRECT, LOGDEPTH_PARS, LOGDEPTH_VERTEX, MATH } from './glsl';
 import type { BodyDef } from '../sim/bodies';
 
@@ -32,6 +32,9 @@ uniform vec3 uCamFwd;      // camera forward (world)
 uniform float uPixelAngle; // radians per pixel
 uniform float uTime;
 uniform sampler2D uMap;
+uniform sampler2D uMapW;
+uniform vec4 uMapR;
+uniform float uMapOn;
 uniform float uAlbedoScale;
 
 uniform vec3 uOccPos[${MAX_OCCLUDERS}]; // occluder centres relative to body centre (body frame)
@@ -45,11 +48,17 @@ uniform vec3 uShineCol;
 
 #ifdef NORMALMAP
 uniform sampler2D uNormal;
+uniform sampler2D uNormalW;
+uniform vec4 uNormalR;
+uniform float uNormalOn;
 uniform float uNormalStrength;
 #endif
 
 #ifdef EARTH
 uniform sampler2D uAux;
+uniform sampler2D uAuxW;
+uniform vec4 uAuxR;
+uniform float uAuxOn;
 uniform float uCloudShift;
 #endif
 
@@ -207,14 +216,14 @@ void main() {
 
   if (!hit && !hitA && coverage <= 0.0) discard;
 
-  vec4 albedoS = sampleEquirect(uMap, uv);
+  vec4 albedoS = sampleLayered(uMap, uMapW, uMapR, uMapOn, uv);
   vec3 albedo = albedoS.rgb * uAlbedoScale;
   vec3 n = nB;
 
 #ifdef NORMALMAP
   vec3 east = normalize(vec3(-dir.y, dir.x, 0.0) + vec3(1e-6, 0.0, 0.0));
   vec3 north = cross(dir, east);
-  vec3 tn = sampleEquirect(uNormal, uv).xyz * 2.0 - 1.0;
+  vec3 tn = sampleLayered(uNormal, uNormalW, uNormalR, uNormalOn, uv).xyz * 2.0 - 1.0;
   n = normalize(east * tn.x * uNormalStrength + north * tn.y * uNormalStrength + nB * max(tn.z, 0.2));
 #endif
 
@@ -238,16 +247,16 @@ void main() {
 #endif
 
 #if defined(EARTH)
-  vec4 aux = sampleEquirect(uAux, uv);
+  vec4 aux = sampleLayered(uAux, uAuxW, uAuxR, uAuxOn, uv);
   vec2 cuv = vec2(uv.x + uCloudShift, uv.y);
-  float cloud = sampleEquirect(uAux, cuv).r;
+  float cloud = sampleLayered(uAux, uAuxW, uAuxR, uAuxOn, cuv).r;
   cloud = smoothstep(0.08, 0.95, cloud);
   float water = aux.g;
   float lights = aux.b;
   // cloud shadows: look up the cloud layer toward the Sun
   vec3 toSunTangent = L - nB * dot(L, nB);
   vec3 shadowDir = normalize(dir + toSunTangent * (6.0 / R) / max(geoNdotL, 0.15));
-  float cloudShadow = smoothstep(0.08, 0.95, sampleEquirect(uAux, vec2(dirToEquirect(shadowDir).x + uCloudShift, dirToEquirect(shadowDir).y)).r);
+  float cloudShadow = smoothstep(0.08, 0.95, sampleLayered(uAux, uAuxW, uAuxR, uAuxOn, vec2(dirToEquirect(shadowDir).x + uCloudShift, dirToEquirect(shadowDir).y)).r);
   float lambert = max(NdotL, 0.0);
   vec3 ground = albedo * mix(1.0, 0.85, water);
   // ocean: dark, with sun glint (GGX) and a little sky reflection
@@ -367,6 +376,9 @@ export function createPlanetMaterial(def: BodyDef, map: Texture, hasNormal: bool
       uPixelAngle: { value: 0.001 },
       uTime: { value: 0 },
       uMap: { value: map },
+      uMapW: { value: map },
+      uMapR: { value: new Vector4(0, 0, 1, 1) },
+      uMapOn: { value: 0 },
       uAlbedoScale: { value: ALBEDO_SCALE[def.id] ?? 1 },
       uOccPos: { value: Array.from({ length: MAX_OCCLUDERS }, () => new Vector3()) },
       uOccR: { value: new Array(MAX_OCCLUDERS).fill(0) },
@@ -374,8 +386,14 @@ export function createPlanetMaterial(def: BodyDef, map: Texture, hasNormal: bool
       uShineDir: { value: new Vector3() },
       uShineCol: { value: new Vector3() },
       uNormal: { value: null },
+      uNormalW: { value: null },
+      uNormalR: { value: new Vector4(0, 0, 1, 1) },
+      uNormalOn: { value: 0 },
       uNormalStrength: { value: 1.0 },
       uAux: { value: null },
+      uAuxW: { value: null },
+      uAuxR: { value: new Vector4(0, 0, 1, 1) },
+      uAuxOn: { value: 0 },
       uCloudShift: { value: 0 },
       uRingTex: { value: null },
       uRingRange: { value: def.rings ? new Vector2(def.rings.inner, def.rings.outer) : new Vector2(0, 1) },

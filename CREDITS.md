@@ -1,6 +1,6 @@
 # Credits and licences
 
-Cosmos's own code is MIT licensed (see `package.json`). The data and images it ships with come from the sources below, and each keeps its own licence. Every file under `public/textures/` was converted to WebP and resized by `tools/build_textures.py`. Some files were also recentred, desaturated or had their stars removed, as noted below.
+Cosmos's own code is MIT licensed (see `package.json`). The data and images it ships with come from the sources below, and each keeps its own licence. Every file under `public/textures/` was converted to WebP and resized by `tools/build_textures.py`. Some files were also recentred, desaturated or had their stars removed, as noted below. Maps 4096 px wide or larger were then cut into 512 px tiles by `tools/build_tiles.py`.
 
 ## Planet, Sun and Moon maps
 
