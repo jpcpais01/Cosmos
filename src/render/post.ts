@@ -278,7 +278,8 @@ void main() {
     // flicker: steady at 1c, stuttering at 100c
     float flick = mix(1.0, 0.35 + 1.4 * hash12(vec2(floor(uTime * 14.0), uSeed * 91.0)), uChaos * 0.7);
     // light pouring out of the apex itself, drifting through colours at high factors
-    vec3 coreCol = mix(vec3(0.55, 0.75, 1.0), warpHue(uSeed + uTime * 0.07 + ang * 0.08), uChaos * 0.55);
+    // (the hue varies periodically round the circle, so there is no seam where atan wraps on the left)
+    vec3 coreCol = mix(vec3(0.55, 0.75, 1.0), warpHue(uSeed + uTime * 0.07 + 0.25 * sin(ang + uSeed * 6.0)), uChaos * 0.55);
     vec3 core = coreCol * pow(vnoise3(wpolar * 16.0 + vec3(3.0, 0.0, lr * 0.9 - flowT * 0.5)), 3.0) * (0.7 + 0.8 * wild) / (1.0 + r * 3.5);
     shafts *= flick;
     col += (acc * vec3(0.8, 0.9, 1.0) * shafts * 0.3 + core * shafts) * uRays * smoothstep(0.0, 0.08, r) * space;
