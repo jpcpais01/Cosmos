@@ -210,11 +210,12 @@ export class Ephemeris {
       }
       return out;
     }
-    // Planets/Moon/Galilean: sample through the ephemeris over one period.
+    // Planets/Moon/Galilean: sample through the ephemeris over one period, centred on now. Perturbed
+    // orbits don't quite close, so this puts the seam on the far side instead of at the body.
     const periodDays = ORBIT_PERIOD_DAYS[id] ?? 365.25;
     const t0 = this.time.ut;
     for (let k = 0; k <= n; k++) {
-      const t = Astronomy.MakeTime(t0 + (k / n) * periodDays);
+      const t = Astronomy.MakeTime(t0 + (k / n - 0.5) * periodDays);
       const v = new Vector3();
       if (s.def.parent === 'sun') {
         const h = Astronomy.HelioVector(ASTRO_BODY[id], t);

@@ -4,6 +4,7 @@ import type { Ship } from '../ship/flight';
 import type { WarpDrive } from '../game/warp';
 import { WARP_FACTORS } from '../sim/constants';
 import { fmtDistance, fmtDuration, fmtSpeed } from './format';
+import { drawBody } from './bodyGlyph';
 
 const CYAN = '#5fd4ff';
 const DIM = 'rgba(95,212,255,0.35)';
@@ -243,23 +244,22 @@ export class Mfd {
       });
       ctx.stroke();
     }
-    // bodies
+    // bodies, at true size (a locator ring when smaller than a pixel or so)
     ctx.font = `500 12px ${FONT}`;
     ctx.textBaseline = 'middle';
-    const dot = (rel: Vector3, r: number, col: string, label?: string) => {
-      const x = cx + rel.x * sc, y = cy + rel.z * sc;
-      if (x < 0 || x > w || y < 40 || y > h) return;
-      ctx.fillStyle = col;
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.fill();
-      if (label) {
-        ctx.fillStyle = DIM;
-        ctx.fillText(label, x + r + 4, y);
-      }
-    };
-    dot(_b.set(0, 0, 0), Math.max(3, center.def.radius * sc), center.def.kind === 'star' ? AMBER : CYAN, undefined);
-    for (const k of kids) dot(_b.subVectors(k.pos, center.pos), 2.5, CYAN, k.def.name);
+    const sun = this.eph.get('sun');
+    drawBody(ctx, center, cx, cy, sc, { sun, locator: center.def.kind === 'star' ? AMBER : CYAN });
+    const labels: [number, number][] = [[cx, cy]];
+    for (const k of kids) {
+      _b.subVectors(k.pos, center.pos);
+      const x = cx + _b.x * sc, y = cy + _b.z * sc;
+      if (x < 0 || x > w || y < 40 || y > h) continue;
+      const r = drawBody(ctx, k, x, y, sc, { sun, locator: CYAN });
+      if (labels.some(([lx, ly]) => Math.abs(lx - x) < 50 && Math.abs(ly - y) < 13)) continue;
+      labels.push([x, y]);
+      ctx.fillStyle = DIM;
+      ctx.fillText(k.def.name, x + r + 4, y);
+    }
     // target
     const tp = this.warp.resolve(_c);
     if (tp) {
