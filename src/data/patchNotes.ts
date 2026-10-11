@@ -11,6 +11,11 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     date: '2026-10-11',
+    title: 'Smooth turn before warp',
+    notes: ['When the ship turns to face a warp target it now eases into the turn, swings round at a steady rate and settles gently on the target, just like turning with the mouse. The pilot moves the stick along with it.'],
+  },
+  {
+    date: '2026-10-11',
     title: 'Fewer triangles for the stars',
     notes: ['Only the stars bright enough to see are drawn each frame (a few thousand instead of all 112,000), so the triangle count in the cost panel drops by about 200k with the same sky.'],
   },
