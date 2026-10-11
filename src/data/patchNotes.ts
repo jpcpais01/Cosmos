@@ -11,6 +11,16 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     date: '2026-10-11',
+    title: 'Reverse thrust',
+    notes: [
+      'The ship can now fly backwards, at up to half its forward speed and with half the acceleration.',
+      'Keyboard: S pulls the throttle down to zero and stops there; let go and press S again to go into reverse. X brakes from either direction.',
+      'Touch: tap the new REV button above the throttle to fly backwards, and tap it again for forward.',
+      'The speed bar turns orange and the readout says REVERSE while you are backing up.',
+    ],
+  },
+  {
+    date: '2026-10-11',
     title: 'A steadier, brighter Sun',
     notes: [
       'The Sun no longer flickers or flashes the screen white when it is only a few pixels wide.',

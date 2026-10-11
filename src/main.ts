@@ -752,7 +752,7 @@ async function main(): Promise<void> {
 
     const parts = shipView.parts!;
     parts.root.quaternion.copy(ship.quat);
-    const thr = warp.active ? Math.max(0.15, warp.spool) : ship.throttle * (fi.boost ? 1.4 : 1);
+    const thr = warp.active ? Math.max(0.15, warp.spool) : Math.abs(ship.throttle) * (fi.boost ? 1.4 : 1);
     engThr = MathUtils.lerp(engThr, Math.min(1.3, thr * 0.9 + 0.02), 1 - Math.exp(-dt * 6));
     shipView.setEngines(engThr, Math.max(warp.spool, warp.intensity), t);
     const eg = 1 / distExposure;
@@ -841,7 +841,7 @@ async function main(): Promise<void> {
     prof.cpu('Render calls');
 
     // HUD
-    sound.update(ship.throttle, fi.boost, warp.spool, warp.intensity, cockpit);
+    sound.update(Math.abs(ship.throttle), fi.boost, warp.spool, warp.intensity, cockpit);
     const target = warp.target;
     const tp = target ? warp.resolve(tmp2) : null;
     const tDist = tp ? tp.distanceTo(ship.absPos(tmp)) : 0;

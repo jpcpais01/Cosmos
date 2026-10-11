@@ -8,6 +8,7 @@ export interface PilotInput {
   pitch: number;
   yaw: number;
   roll: number;
+  /** -1..1, below zero is reverse */
   throttle: number;
   boost: boolean;
   /** warp spool / intensity, 0..1 */
@@ -196,7 +197,7 @@ export class Pilot {
     _q2.setFromAxisAngle(_Z, sm.roll * 0.28);
     _q3.setFromAxisAngle(this.gripAxis, sm.yaw * 0.22);
     this.stick.quaternion.copy(this.stickRest).multiply(_q).multiply(_q2).multiply(_q3);
-    _q.setFromAxisAngle(_X, -(sm.thr * 2 - 1) * 0.3);
+    _q.setFromAxisAngle(_X, -(sm.thr >= 0 ? sm.thr * 2 - 1 : sm.thr * 0.5 - 1) * 0.3);
     this.throttle.quaternion.copy(this.throttleRest).multiply(_q);
 
     // body: start from the rest pose every frame

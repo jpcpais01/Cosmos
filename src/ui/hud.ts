@@ -2,6 +2,7 @@ import { WARP_FACTORS, type WarpFactor } from '../sim/constants';
 import type { SavedLocation } from '../game/locations';
 import { fmtDate, fmtDistance, fmtDuration, fmtSpeed } from './format';
 import type { ProfileReport } from '../render/profiler';
+import { REVERSE_FRACTION } from '../ship/flight';
 
 /** What the performance breakdown shows besides the frame rate. */
 export interface PerfInfo {
@@ -202,6 +203,9 @@ export class Hud {
   touchBoost = false;
   touchBrake = false;
   private thrText = el('div', 'tthr-text', '0%');
+  /** the touch throttle's last value (-1..1); the slider sets its size and REV its sign */
+  private touchThr = 0;
+  private revBtn = el('button', 'btn pedal rev', 'REV');
   private lastState?: HudState;
 
   constructor(private actions: HudActions, private settings: Settings) {
@@ -513,6 +517,7 @@ export class Hud {
       ['THR', 'Slide up / down for speed (logarithmic, 10 m/s → 15,000 km/s)'],
       ['BOOST', 'Hold for extra speed'],
       ['BRAKE', 'Hold to slow down'],
+      ['REV', 'Tap to fly backwards (half speed) · tap again for forward'],
       ['Roll buttons', 'Hold to roll left / right'],
       ['Destination', 'Tap it (or the map button) to choose a body or any point'],
       ['10c', 'Tap to change the warp factor: 1c, 3c, 10c, 50c, 100c'],
@@ -520,12 +525,12 @@ export class Hud {
       ['•••', 'Labels, sound, settings, controls, update, fullscreen'],
     ];
     const rows: [string, string][] = TOUCH ? touchRows : [
-      ['W / S', 'Throttle up / down (logarithmic, 10 m/s → 15,000 km/s)'],
+      ['W / S', 'Throttle up / down (logarithmic, 10 m/s → 15,000 km/s) · S again from zero flies backwards at half speed'],
       ['A / D · ← →', 'Yaw'],
       ['↑ ↓', 'Pitch'],
       ['Q / E', 'Roll'],
       ['Shift', 'Boost'],
-      ['X', 'Brake (throttle to zero)'],
+      ['X', 'Brake (throttle to zero, forward or reverse)'],
       ['Right-click', 'Mouse flight on / off: the ship smoothly follows the mouse; off gives you the pointer back for buttons'],
       ['Left-drag', 'Look around (cockpit) / orbit camera (outside)'],
       ['V', 'Cockpit → chase → far chase view'],
@@ -627,7 +632,8 @@ export class Hud {
     let tid: number | null = null;
     const setT = (e: PointerEvent) => {
       const r = thr.getBoundingClientRect();
-      const v = Math.min(1, Math.max(0, 1 - (e.clientY - r.top) / r.height));
+      const m = Math.min(1, Math.max(0, 1 - (e.clientY - r.top) / r.height));
+      const v = this.touchThr < 0 || (this.touchThr === 0 && this.revBtn.classList.contains('on')) ? -m : m;
       this.touchThrottle = v;
       this.syncTouchThrottle(v);
     };
@@ -647,15 +653,31 @@ export class Hud {
     const brake = el('button', 'btn pedal brake', 'BRAKE');
     hold(boost, (on) => (this.touchBoost = on));
     hold(brake, (on) => (this.touchBrake = on));
-    pedals.append(boost, brake);
+    // reverse: tap to flip the throttle between forward and reverse
+    const rev = this.revBtn;
+    rev.title = 'Reverse (half speed)';
+    rev.addEventListener('contextmenu', (e) => e.preventDefault());
+    rev.addEventListener('click', () => {
+      const on = !rev.classList.contains('on');
+      const v = (on ? -1 : 1) * Math.abs(this.touchThr);
+      this.touchThrottle = v;
+      this.syncTouchThrottle(v);
+      rev.classList.toggle('on', on);
+    });
+    pedals.append(boost, brake, rev);
     this.touch.append(zone, rolls, thr, pedals);
   }
 
   /** Called when the throttle is changed by other inputs so the touch slider follows. */
   syncTouchThrottle(v: number): void {
+    this.touchThr = v;
+    if (v !== 0) this.revBtn.classList.toggle('on', v < 0);
     const fill = this.touch.querySelector<HTMLDivElement>('.tthr-fill');
-    if (fill) fill.style.height = `${v * 100}%`;
-    this.thrText.textContent = `${Math.round(v * 100)}%`;
+    if (fill) {
+      fill.style.height = `${Math.abs(v) * 100}%`;
+      fill.classList.toggle('rev', v < 0 || (v === 0 && this.revBtn.classList.contains('on')));
+    }
+    this.thrText.textContent = `${v < 0 ? 'R ' : ''}${Math.round(Math.abs(v) * 100)}%`;
   }
 
   /** A newer version has been downloaded: highlight the update button. */
@@ -678,9 +700,11 @@ export class Hud {
     this.lastState = s;
     const warping = s.warpState === 'cruise';
     this.speedEl.textContent = fmtSpeed(warping ? s.warpSpeed : s.speed);
-    this.limitEl.textContent = warping ? `WARP ${s.warpFactor}c` : `${s.boost ? 'BOOST · ' : ''}LIMIT ${fmtSpeed(s.limit)}`;
-    this.thrFill.style.width = `${(warping ? 1 : s.throttle) * 100}%`;
+    const rev = !warping && s.throttle < 0;
+    this.limitEl.textContent = warping ? `WARP ${s.warpFactor}c` : `${rev ? 'REVERSE · ' : ''}${s.boost ? 'BOOST · ' : ''}LIMIT ${fmtSpeed(s.limit * (rev ? REVERSE_FRACTION : 1))}`;
+    this.thrFill.style.width = `${(warping ? 1 : Math.abs(s.throttle)) * 100}%`;
     this.thrFill.classList.toggle('warp', warping);
+    this.thrFill.classList.toggle('rev', rev);
     this.locName.textContent = s.nearest.toUpperCase();
     this.locSub.textContent = `${s.nearest === 'Interplanetary space' ? 'From the Sun' : 'Altitude'} ${fmtDistance(s.altitude)} · ${s.view}`;
     this.dateEl.textContent = fmtDate(s.simMs);
