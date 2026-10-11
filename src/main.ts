@@ -8,6 +8,7 @@ import { AU_KM, C_KMS, WARP_FACTORS, type WarpFactor } from './sim/constants';
 import { Universe, SUN_COLOR } from './render/universe';
 import { Sky, worldToGalactic } from './render/sky';
 import { PostPipeline } from './render/post';
+import { ShipMask, shipMaskUniforms } from './render/shipMask';
 import { FrameProfiler } from './render/profiler';
 import { EnvMap } from './render/envmap';
 import { Ship, lookQuat } from './ship/flight';
@@ -135,6 +136,7 @@ async function main(): Promise<void> {
   const universe = new Universe(renderer, eph, preset.maxTexture);
   const sky = new Sky(preset.starLayers);
   const post = new PostPipeline(renderer);
+  const shipMask = new ShipMask();
   // per-pass costs for the performance readout
   const prof = new FrameProfiler(renderer);
   post.profiler = prof;
@@ -188,7 +190,10 @@ async function main(): Promise<void> {
     shipView.load((f) => {
       progress.ship = f;
       showProgress();
-    }).then((parts) => rig.setEye(parts.eye.clone())),
+    }).then((parts) => {
+      rig.setEye(parts.eye.clone());
+      shipMask.add(parts.model);
+    }),
     loadSky(2048).then(() => {
       progress.sky = 1;
       showProgress();
@@ -428,6 +433,7 @@ async function main(): Promise<void> {
     const w = Math.max(1, Math.round(cssW * pr));
     const h = Math.max(1, Math.round(cssH * pr));
     post.setSize(w, h);
+    shipMask.setSize(w, h);
     rig.camera.aspect = cssW / cssH;
     map.resize();
   };
@@ -485,7 +491,7 @@ async function main(): Promise<void> {
       tex: universe.views.map((v) => `${v.state.def.id}:${(v.mat.uniforms.uMap.value as { image?: { width: number } }).image?.width}`).join(' '),
     }),
     dbg: (o: Partial<typeof dbg>) => Object.assign(dbg, o),
-    internals: () => ({ universe, sky, post, renderer, shipView, ship, warp, eph, rig }),
+    internals: () => ({ universe, sky, post, renderer, shipView, ship, warp, eph, rig, shipMask }),
     /** points the ship at a body */
     face: (id: string) => {
       const d = new Vector3().subVectors(eph.get(id).pos, ship.absPos(new Vector3())).normalize();
@@ -853,12 +859,20 @@ async function main(): Promise<void> {
     const sunRadius = Math.asin(Math.min(1, sun.def.radius / sunDist)) / (universe.pixelAngle * bufH);
 
     // render
+    // From the cockpit the dashboard and frame hide a large part of the view: outline them first so the sky
+    // and planet shaders skip those pixels (the ship pass paints over them anyway).
+    if (cockpit) {
+      prof.gpu('Cockpit outline');
+      shipMask.render(renderer, shipView.scene, rig.camera);
+    }
+    shipMaskUniforms.uShipMaskOn.value = cockpit ? 1 : 0;
     prof.gpu('Sky & stars');
     renderer.setRenderTarget(post.hdr);
     renderer.clear(true, true, false);
     renderer.render(sky.scene, sky.camera);
     prof.gpu('Planets & moons');
     renderer.render(universe.scene, universe.camera);
+    shipMaskUniforms.uShipMaskOn.value = 0;
     prof.gpu('Ship');
     // only the ship writes this depth, so it doubles as the ship mask the post pass reads (warp distortion
     // bends space outside the hull, and the hull hides the sun glare)

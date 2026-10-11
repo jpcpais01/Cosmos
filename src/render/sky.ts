@@ -3,6 +3,7 @@ import {
   OrthographicCamera, Quaternion, Scene, ShaderMaterial, Texture, Vector2, Vector3,
 } from 'three';
 import { EQUIRECT, MATH, STAR_COLOR } from './glsl';
+import { SHIP_MASK, shipMaskUniforms } from './shipMask';
 import { OBLIQUITY_J2000 } from '../sim/constants';
 
 /** World (ecliptic, Y-up) -> galactic rotation. */
@@ -140,6 +141,7 @@ ${EQUIRECT}
 ${ABERRATION}
 ${FAINT_STARS}
 ${SKY_VISIBILITY}
+${SHIP_MASK}
 varying vec2 vNdc;
 uniform mat3 uCamRot;
 uniform vec2 uTan;
@@ -152,6 +154,7 @@ uniform float uPx;
 uniform vec3 uVel;
 uniform float uBeta;
 void main() {
+  if (behindShip()) discard; // the cockpit covers it
   // view ray from the camera basis (an inverted view-projection is too imprecise with a 1e15 depth range)
   vec3 ray = vec3(vNdc * uTan, -1.0);
   vec3 dObs = normalize(uCamRot * ray);
@@ -192,6 +195,7 @@ void main() {
         uBeta: { value: 0 },
         uAdapt: { value: null },
         uAdaptScale: { value: 1 },
+        ...shipMaskUniforms,
       },
     });
     const bg = new Mesh(tri, this.bgMat);
