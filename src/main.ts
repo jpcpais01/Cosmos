@@ -120,9 +120,7 @@ async function main(): Promise<void> {
   const renderer = new WebGLRenderer({ canvas, antialias: false, alpha: false, stencil: false, powerPreference: 'high-performance' });
   renderer.autoClear = false;
   renderer.toneMapping = NoToneMapping;
-  const BLACK = new Color(0, 0, 0);
-  renderer.setClearColor(BLACK, 1);
-  const gl = renderer.getContext();
+  renderer.setClearColor(new Color(0, 0, 0), 1);
 
   // --- simulation
   let simMs = Date.now();
@@ -862,16 +860,9 @@ async function main(): Promise<void> {
     prof.gpu('Planets & moons');
     renderer.render(universe.scene, universe.camera);
     prof.gpu('Ship');
+    // only the ship writes this depth, so it doubles as the ship mask the post pass reads (warp distortion
+    // bends space outside the hull, and the hull hides the sun glare)
     renderer.clearDepth();
-    // alpha becomes a ship mask (0 = world, 1 = ship): warp distortion only bends space outside the hull and
-    // the hull hides the sun glare. A masked clear rewrites the whole HDR buffer, so skip it when neither needs it.
-    if (sunOn > 0 || Math.max(warp.intensity, warp.spool, warp.flash, warp.shake) > 0) {
-      gl.colorMask(false, false, false, true);
-      renderer.setClearColor(BLACK, 0);
-      renderer.clear(true, false, false);
-      gl.colorMask(true, true, true, true);
-      renderer.setClearColor(BLACK, 1);
-    }
     renderer.render(shipView.scene, rig.camera);
 
     // warp apex

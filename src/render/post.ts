@@ -1,7 +1,7 @@
 import {
-  AddEquation, BufferAttribute, BufferGeometry, CustomBlending, FloatType, HalfFloatType, LinearFilter, Mesh,
-  NoBlending, OneFactor, OrthographicCamera, RGBAFormat, Scene, ShaderMaterial, Vector2, WebGLRenderTarget,
-  type Texture, type WebGLRenderer,
+  AddEquation, BufferAttribute, BufferGeometry, CustomBlending, DepthTexture, FloatType, HalfFloatType, LinearFilter,
+  Mesh, NearestFilter, NoBlending, OneFactor, OrthographicCamera, RGBAFormat, RGBFormat, Scene, ShaderMaterial,
+  UnsignedInt101111Type, Vector2, WebGLRenderTarget, type Texture, type WebGLRenderer,
 } from 'three';
 import { MATH } from './glsl';
 import type { FrameProfiler } from './profiler';
@@ -72,6 +72,7 @@ const COMPOSITE = /* glsl */ `
 ${MATH}
 varying vec2 vUv;
 uniform sampler2D uScene;
+uniform sampler2D uDepth;  // the ship pass's depth: anything nearer than the far plane is the ship
 uniform sampler2D uBloom;
 uniform sampler2D uAdapt;
 uniform vec2 uResolution;
@@ -116,6 +117,10 @@ vec3 agx(vec3 c) {
   return clamp(mi * c, 0.0, 1.0);
 }
 
+// 1 where the ship was drawn. The ship pass starts from a cleared depth buffer and only the ship writes depth
+// in it, so its depth texture is the ship mask for free (no extra pass over the frame to build one).
+float shipAt(vec2 uv) { return texture(uDepth, uv).r < 1.0 ? 1.0 : 0.0; }
+
 // Sun glare, drawn analytically around the Sun's exact sub-pixel position so it stays steady while the
 // view moves (the disc itself is only a few pixels across). Hidden by the ship through its mask, which
 // is filtered so the glare fades smoothly as a strut or the hull slides over the Sun.
@@ -124,8 +129,8 @@ vec3 sunFlare(vec2 uv, vec2 aspect) {
   float hid = 0.0;
   if (all(greaterThan(uSunUv, vec2(0.0))) && all(lessThan(uSunUv, vec2(1.0)))) {
     vec2 sr = vec2(max(uSunRadius * uResolution.y * 0.7, 0.75)) / uResolution;
-    hid = (texture(uScene, uSunUv).a * 2.0 + texture(uScene, uSunUv + vec2(sr.x, 0.0)).a + texture(uScene, uSunUv - vec2(sr.x, 0.0)).a
-         + texture(uScene, uSunUv + vec2(0.0, sr.y)).a + texture(uScene, uSunUv - vec2(0.0, sr.y)).a) / 6.0;
+    hid = (shipAt(uSunUv) * 2.0 + shipAt(uSunUv + vec2(sr.x, 0.0)) + shipAt(uSunUv - vec2(sr.x, 0.0))
+         + shipAt(uSunUv + vec2(0.0, sr.y)) + shipAt(uSunUv - vec2(0.0, sr.y))) / 6.0;
   }
   float vis = uSunOn * (1.0 - clamp(hid, 0.0, 1.0)) * uSunPower;
   if (vis <= 0.0) return vec3(0.0);
@@ -204,7 +209,7 @@ void main() {
   vec2 uv = vUv;
   vec2 aspect = vec2(uResolution.x / uResolution.y, 1.0);
   // warp bubble lensing: radial compression toward the apex with a refractive ring
-  float hull = texture(uScene, uv).a; // 1 where the ship was drawn
+  float hull = shipAt(uv);
   float space = 1.0 - clamp(hull, 0.0, 1.0);
   float inside = 1.0 - space;
   vec2 dv = (uv - uApex) * aspect;
@@ -444,24 +449,10 @@ export interface PostParams {
   shake: number;
 }
 
-const COPY = /* glsl */ `
-varying vec2 vUv;
-uniform sampler2D uSrc;
-uniform vec2 uTexel;
-void main() {
-  // 4-tap box: a soft half-resolution copy is all the exhaust lens needs
-  vec3 c = texture2D(uSrc, vUv + uTexel * vec2(-0.5, -0.5)).rgb + texture2D(uSrc, vUv + uTexel * vec2(0.5, -0.5)).rgb
-         + texture2D(uSrc, vUv + uTexel * vec2(-0.5, 0.5)).rgb + texture2D(uSrc, vUv + uTexel * vec2(0.5, 0.5)).rgb;
-  gl_FragColor = vec4(c * 0.25, 1.0);
-}`;
-
 const MIPS = 6;
 
 export class PostPipeline {
   readonly hdr: WebGLRenderTarget;
-  /** Half-resolution copy of the frame so far, for refraction effects. */
-  readonly bg: WebGLRenderTarget;
-  private copy: ShaderMaterial;
   private mips: WebGLRenderTarget[] = [];
   private adapt: WebGLRenderTarget[];
   private adaptIdx = 0;
@@ -489,21 +480,25 @@ export class PostPipeline {
   constructor(private renderer: WebGLRenderer) {
     // Never multisampled: three.js resolves an MSAA target (colour and depth) after every render() call,
     // four times a frame here, which made medium and higher run several times slower than low.
+    // The depth is a texture so the composite can read the ship mask from it (see shipAt).
     this.hdr = new WebGLRenderTarget(1, 1, {
       type: HalfFloatType, format: RGBAFormat, depthBuffer: true, stencilBuffer: false,
       minFilter: LinearFilter, magFilter: LinearFilter, generateMipmaps: false,
     });
+    this.hdr.depthTexture = new DepthTexture(1, 1);
+    this.hdr.depthTexture.minFilter = this.hdr.depthTexture.magFilter = NearestFilter;
     this.ldr = new WebGLRenderTarget(1, 1, {
       format: RGBAFormat, depthBuffer: false, minFilter: LinearFilter, magFilter: LinearFilter, generateMipmaps: false,
     });
+    // The bloom chain needs no alpha and little precision: packed 32-bit floats (R11F_G11F_B10F) move half the
+    // bytes of RGBA half floats through every bloom pass. Rendering to them needs EXT_color_buffer_float.
+    const packed = renderer.extensions.has('EXT_color_buffer_float');
     for (let i = 0; i < MIPS; i++) {
       this.mips.push(new WebGLRenderTarget(1, 1, {
-        type: HalfFloatType, format: RGBAFormat, depthBuffer: false, minFilter: LinearFilter, magFilter: LinearFilter,
+        type: packed ? UnsignedInt101111Type : HalfFloatType, format: packed ? RGBFormat : RGBAFormat,
+        depthBuffer: false, minFilter: LinearFilter, magFilter: LinearFilter, generateMipmaps: false,
       }));
     }
-    this.bg = new WebGLRenderTarget(1, 1, {
-      type: HalfFloatType, format: RGBAFormat, depthBuffer: false, minFilter: LinearFilter, magFilter: LinearFilter, generateMipmaps: false,
-    });
     this.adapt = [0, 1].map(() => new WebGLRenderTarget(1, 1, { type: FloatType, depthBuffer: false }));
     const tri = new BufferGeometry();
     tri.setAttribute('position', new BufferAttribute(new Float32Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]), 3));
@@ -512,14 +507,12 @@ export class PostPipeline {
     this.up = new ShaderMaterial({ vertexShader: VERT, fragmentShader: UPSAMPLE, depthTest: false, depthWrite: false,
       blending: CustomBlending, blendEquation: AddEquation, blendSrc: OneFactor, blendDst: OneFactor,
       uniforms: { uSrc: { value: null }, uTexel: { value: new Vector2() }, uWeight: { value: 1 } } });
-    this.copy = new ShaderMaterial({ vertexShader: VERT, fragmentShader: COPY, depthTest: false, depthWrite: false, blending: NoBlending,
-      uniforms: { uSrc: { value: null }, uTexel: { value: new Vector2() } } });
     this.adaptMat = new ShaderMaterial({ vertexShader: VERT, fragmentShader: ADAPT, depthTest: false, depthWrite: false,
       uniforms: { uSrc: { value: null }, uPrev: { value: null }, uBlend: { value: 0.05 } } });
     this.comp = new ShaderMaterial({
       vertexShader: VERT, fragmentShader: COMPOSITE, depthTest: false, depthWrite: false, blending: NoBlending,
       uniforms: {
-        uScene: { value: null }, uBloom: { value: null }, uAdapt: { value: null },
+        uScene: { value: null }, uDepth: { value: null }, uBloom: { value: null }, uAdapt: { value: null },
         uResolution: { value: new Vector2() }, uExposure: { value: 1 }, uAdaptStrength: { value: 1 },
         uBloomStrength: { value: 0.05 }, uTime: { value: 0 },
         uSunUv: { value: new Vector2() }, uSunOn: { value: 0 }, uSunPower: { value: 1 }, uSunRadius: { value: 0 },
@@ -547,7 +540,6 @@ export class PostPipeline {
     this.height = h;
     this.hdr.setSize(w, h);
     if (this.aa) this.ldr.setSize(w, h);
-    this.bg.setSize(Math.max(1, w >> 1), Math.max(1, h >> 1));
     let mw = w, mh = h;
     for (const m of this.mips) {
       mw = Math.max(1, mw >> 1);
@@ -562,18 +554,6 @@ export class PostPipeline {
     this.fxaa.uniforms.uSharpen.value = sharpen;
     if (on) this.ldr.setSize(this.width, this.height);
     else this.ldr.setSize(1, 1);
-  }
-
-  /** Copies the HDR frame rendered so far into bg, then makes hdr the render target again. */
-  captureBackground(): void {
-    const r = this.renderer;
-    const autoClear = r.autoClear;
-    r.autoClear = false;
-    this.copy.uniforms.uSrc.value = this.hdr.texture;
-    (this.copy.uniforms.uTexel.value as Vector2).set(1 / this.width, 1 / this.height);
-    this.pass(this.copy, this.bg);
-    r.setRenderTarget(this.hdr);
-    r.autoClear = autoClear;
   }
 
   private pass(mat: ShaderMaterial, target: WebGLRenderTarget | null): void {
@@ -619,6 +599,7 @@ export class PostPipeline {
 
     const u = this.comp.uniforms;
     u.uScene.value = this.hdr.texture;
+    u.uDepth.value = this.hdr.depthTexture;
     u.uBloom.value = this.mips[0].texture;
     u.uAdapt.value = next.texture;
     (u.uResolution.value as Vector2).set(this.width, this.height);

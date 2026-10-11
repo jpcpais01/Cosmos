@@ -219,7 +219,7 @@ void main() {
   m.blending = CustomBlending;
   m.blendSrc = OneFactor;
   m.blendDst = OneMinusSrcAlphaFactor;
-  // leave the alpha channel (the post pass's ship mask) alone: what is seen through the glass is space
+  // leave the alpha channel alone (nothing reads it)
   m.blendSrcAlpha = ZeroFactor;
   m.blendDstAlpha = OneFactor;
   return m;
