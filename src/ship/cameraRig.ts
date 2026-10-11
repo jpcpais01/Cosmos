@@ -98,7 +98,7 @@ export class CameraRig {
       const far = this.mode === 'far';
       this.camera.near = 0.5;
       this.camera.far = 6000;
-      this.camera.fov = 60 + this.kick * 8;
+      this.camera.fov = this.fovBase - 12 + this.kick * 8;
       // lagged follow of the ship's orientation
       if (!this.lagInit) {
         this.lagQuat.copy(shipQuat);

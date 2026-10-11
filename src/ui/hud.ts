@@ -12,6 +12,8 @@ export interface Settings {
   fps: boolean;
   sound: boolean;
   volume: number;
+  /** cockpit field of view in degrees; the chase views sit 12° narrower */
+  fov: number;
 }
 
 const SETTINGS_KEY = 'cosmos.settings.v1';
@@ -24,7 +26,7 @@ export function defaultQuality(): Quality {
 }
 
 export function loadSettings(): Settings {
-  const d: Settings = { quality: defaultQuality(), invertY: false, sensitivity: 1, labels: true, fps: true, sound: true, volume: 0.7 };
+  const d: Settings = { quality: defaultQuality(), invertY: false, sensitivity: 1, labels: true, fps: true, sound: true, volume: 0.7, fov: 72 };
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (raw) return { ...d, ...(JSON.parse(raw) as Partial<Settings>) };
@@ -319,6 +321,20 @@ export class Hud {
       this.commit();
     };
     row('Mouse sensitivity', sens);
+    const fov = el('input');
+    fov.type = 'range';
+    fov.min = '50';
+    fov.max = '110';
+    fov.step = '1';
+    fov.value = String(s.fov);
+    const fovLabel = () => `Field of view (${s.fov}°)`;
+    fov.oninput = () => {
+      s.fov = Number(fov.value);
+      fovName.textContent = fovLabel();
+      this.commit();
+    };
+    row(fovLabel(), fov);
+    const fovName = fov.previousElementSibling as HTMLElement;
     const inv = el('input');
     inv.type = 'checkbox';
     inv.checked = s.invertY;
