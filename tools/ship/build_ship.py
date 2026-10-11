@@ -475,16 +475,18 @@ for side in (1, -1):
     box('Pedal', (side * 0.148, 2.31, 0.418), (0.02, 0.30, 0.004), M_ACCENT, 0.0, rot=(-0.06, 0, 0))
 
 # control pods beside the knees: flight stick (right) and throttle (left)
+POD_TOP = pilot.STICK_PIVOT.z - 0.012
 for side in (1, -1):
     px = pilot.GRIP[side].x
     pv = pilot.STICK_PIVOT if side > 0 else pilot.THROTTLE_PIVOT
-    box('ControlPod', (side * 0.40, pv.y, 0.60), (0.10, 0.18, 0.96), M_PANEL, 0.025)
-    box('ControlPod', (px + side * 0.035, pv.y, 1.075), (0.16, 0.20, 0.07), M_PANEL, 0.02)
+    x0, x1 = abs(px) - 0.06, 0.45
+    box('ControlPod', (side * 0.40, pv.y, (0.12 + POD_TOP - 0.05) / 2), (0.10, 0.18, POD_TOP - 0.17), M_PANEL, 0.025)
+    box('ControlPod', (side * (x0 + x1) / 2, pv.y, POD_TOP - 0.035), (x1 - x0, 0.20, 0.07), M_PANEL, 0.02)
     for c in range(3):
-        box('Button', (side * 0.385, pv.y - 0.05 + c * 0.05, 1.112), (0.03, 0.03, 0.012), M_BUTTONS, 0.004)
-cylinder('ControlPodCap', (pilot.GRIP[1].x, pilot.STICK_PIVOT.y, 1.115), 0.046, 0.016, M_TRIM, rot=(0, 0, 0), verts=32)
-box('ControlPodCap', (pilot.GRIP[-1].x, pilot.THROTTLE_PIVOT.y, 1.114), (0.07, 0.20, 0.014), M_TRIM, 0.004)
-box('ControlPodSlot', (pilot.GRIP[-1].x, pilot.THROTTLE_PIVOT.y, 1.121), (0.016, 0.17, 0.004), M_INTERIOR, 0.0)
+        box('Button', (side * 0.41, pv.y - 0.05 + c * 0.05, POD_TOP + 0.002), (0.03, 0.03, 0.012), M_BUTTONS, 0.004)
+cylinder('ControlPodCap', (pilot.GRIP[1].x, pilot.STICK_PIVOT.y, POD_TOP + 0.005), 0.046, 0.016, M_TRIM, rot=(0, 0, 0), verts=32)
+box('ControlPodCap', (pilot.GRIP[-1].x, pilot.THROTTLE_PIVOT.y, POD_TOP + 0.004), (0.07, 0.20, 0.014), M_TRIM, 0.004)
+box('ControlPodSlot', (pilot.GRIP[-1].x, pilot.THROTTLE_PIVOT.y, POD_TOP + 0.011), (0.016, 0.17, 0.004), M_INTERIOR, 0.0)
 
 
 def lever(name, pivot, shaft_len, top_buttons):

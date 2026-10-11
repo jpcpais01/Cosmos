@@ -19,7 +19,7 @@ GRIP_UP = V((0, math.sin(GRIP_TILT), math.cos(GRIP_TILT)))
 GRIP_FWD = V((0, math.cos(GRIP_TILT), -math.sin(GRIP_TILT)))
 GRIP_R = 0.021
 # centre of each hand's hold: right = flight stick, left = throttle
-GRIP = {1: V((0.30, 2.057, 1.25)), -1: V((-0.30, 2.057, 1.25))}
+GRIP = {1: V((0.27, 2.10, 1.275)), -1: V((-0.27, 2.10, 1.275))}
 STICK_PIVOT = GRIP[1] - GRIP_UP * 0.13
 THROTTLE_PIVOT = GRIP[-1] - GRIP_UP * 0.19
 # the grip spans these offsets along GRIP_UP from its centre
@@ -376,6 +376,12 @@ def hand_into(s, glove, armor):
         pts.insert(0, V((0.038, -0.006, z)))
         radii.insert(0, r)
         frames = frames_along(pts, up)
+        # round the fingertip
+        tip, r_tip, f_tip = pts[-1], radii[-1], frames[-1]
+        for along, shrink in ((0.45, 0.8), (0.8, 0.45)):
+            pts.append(tip + f_tip[0] * (r_tip * along))
+            radii.append(r_tip * shrink)
+            frames.append(f_tip)
         rings = [[p + nrm * (rr * math.cos(2 * math.pi * j / 12)) + bn * (rr * math.sin(2 * math.pi * j / 12)) for j in range(12)]
                  for p, rr, (_, nrm, bn) in zip(pts, radii, frames)]
         loft_into(sub, rings, [w] * len(rings), cap0=False, cap1=True)
