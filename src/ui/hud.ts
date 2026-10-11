@@ -457,7 +457,7 @@ export class Hud {
     let st = '';
     if (s.warpState === 'aligning') st = 'ALIGNING TO TARGET';
     else if (s.warpState === 'spooling') st = `WARP DRIVE CHARGING ${Math.round(s.warpSpool * 100)}%`;
-    else if (s.warpState === 'cruise') st = `WARP ${s.warpFactor}c · ${s.targetName} · ${fmtDuration(s.warpDistance / Math.max(s.warpSpeed, 1))}`;
+    else if (s.warpState === 'cruise') st = `WARP ${s.warpFactor}c · ${s.targetName} · ${fmtDuration(s.warpDistance / (s.warpFactor * 299792.458))}`;
     else if (s.warpState === 'exiting') st = 'DROPPING OUT OF WARP';
     this.status.textContent = st;
     this.status.classList.toggle('show', !!st);

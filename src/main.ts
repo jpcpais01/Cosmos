@@ -613,7 +613,7 @@ async function main(): Promise<void> {
     shipView.cabin.intensity = (cockpit ? 0.35 : 0.15) * eg * dbg.cabin;
     if (parts.canopy) parts.canopy.visible = dbg.canopy;
     shipView.screenLight.intensity = 0.3 * eg;
-    shipView.warpLight.intensity = (warp.intensity * 60 + warp.spool * 25 + warp.flash * 200) * (cockpit ? 0.4 : 1) * eg;
+    shipView.warpLight.intensity = (warp.intensity * 22 + warp.spool * 18 + warp.flash * 120) * (cockpit ? 0.4 : 1) * eg;
     mfd.update(dt, simMs);
 
     // render
@@ -718,7 +718,7 @@ async function main(): Promise<void> {
     } else hud.setMarker(null, null, '');
 
     // body labels
-    if (!settings.labels || map.open) {
+    if (!settings.labels || map.open || warp.state === 'cruise') {
       hud.setLabels([]);
       return;
     }
@@ -733,7 +733,7 @@ async function main(): Promise<void> {
       const inSystem = v.state === sys || v.state.parent === sys;
       if (!inSystem && d.kind !== 'star' && v.pixelRadius < 1 && v.apparentMag > 5.5) continue;
       if (v.pixelRadius * (cssH / post.hdr.height) > cssH * 0.35) continue;
-      if (warp.target?.kind === 'body' && warp.target.id === d.id && warp.state !== 'cruise') continue;
+      if (warp.target?.kind === 'body' && warp.target.id === d.id) continue;
       mk.subVectors(v.state.pos, camAbs);
       const cz = mk.clone().applyQuaternion(camQ.clone().invert()).z;
       if (cz >= 0) continue;
