@@ -6,6 +6,8 @@ import { lookQuat } from '../ship/flight';
 import { DEG } from '../sim/constants';
 import { latLonToBody } from '../sim/frames';
 import { systemOf } from '../sim/bodies';
+import { SYSTEM_BY_ID } from '../sim/systems';
+import { gatePosition, gateQuaternion } from './gate';
 
 export interface SavedLocation {
   id: string;
@@ -66,6 +68,17 @@ const turn = (a: Vector3, b: Vector3, deg: number) => a.clone().multiplyScalar(M
  * Puts the ship at `abs` (km, world) facing `target`, with `up` as the up hint. `lower` (deg) points the nose
  * that much below the target, so in the cockpit it sits higher in the view, clear of the dashboard.
  */
+/** In front of a system's warp gate, a little to one side, looking at it. */
+function placeAtGate(eph: Ephemeris, ship: Ship, system: string): void {
+  const sys = SYSTEM_BY_ID[system];
+  const G = gatePosition(eph, new Vector3(), sys);
+  const q = gateQuaternion(sys);
+  const right = new Vector3(1, 0, 0).applyQuaternion(q);
+  const up = new Vector3(0, 1, 0).applyQuaternion(q);
+  const abs = G.clone().addScaledVector(sys.gate.dir, -5.2).addScaledVector(right, 1.7).addScaledVector(up, 0.6);
+  aimShip(ship, eph, sys.star, abs, G, up, 0);
+}
+
 function aimShip(ship: Ship, eph: Ephemeris, frame: string, abs: Vector3, target: Vector3, up: Vector3, lower = 0): void {
   let dir = new Vector3().subVectors(target, abs).normalize();
   if (lower) dir = turn(dir, perpTo(dir, up).negate(), lower);
@@ -450,6 +463,27 @@ export const DEFAULT_LOCATIONS: SavedLocation[] = [
       const S = eph.get('kepler385');
       const abs = new Vector3(0.18 * 149_597_870.7, 0.32 * 149_597_870.7, 0.26 * 149_597_870.7);
       aimShip(ship, eph, 'kepler385', abs, S.pos, new Vector3(0, 1, 0), 0);
+    },
+  },
+  {
+    id: 'sol-gate',
+    name: 'Solar System Warp Gate',
+    description: 'Beyond Neptune, 32 AU out toward Cygnus: the gate to the stars. Fly close and choose where to go.',
+    epoch: null,
+    view: 'chase',
+    place(eph, ship) {
+      placeAtGate(eph, ship, 'sol');
+    },
+  },
+  {
+    id: 'k385-gate',
+    name: 'Kepler-385 Warp Gate',
+    description: 'One AU from Kepler-385, on the side that faces home: the Sun is 4,940 light years behind it, far too faint to see.',
+    epoch: null,
+    view: 'chase',
+    system: 'kepler385',
+    place(eph, ship) {
+      placeAtGate(eph, ship, 'kepler385');
     },
   },
 ];

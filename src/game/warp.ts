@@ -3,11 +3,14 @@ import type { Ephemeris } from '../sim/ephemeris';
 import { C_KMS, type WarpFactor } from '../sim/constants';
 import type { Ship } from '../ship/flight';
 import { BODY_BY_ID } from '../sim/bodies';
+import { gateArrival, gatePosition } from './gate';
 
 export type WarpTarget =
   | { kind: 'body'; id: string }
   /** a point fixed relative to a (non-rotating) body frame */
-  | { kind: 'point'; frame: string; offset: Vector3; label?: string };
+  | { kind: 'point'; frame: string; offset: Vector3; label?: string }
+  /** the warp gate of the system the ship is in */
+  | { kind: 'gate' };
 
 export type WarpState = 'idle' | 'aligning' | 'spooling' | 'cruise' | 'exiting';
 
@@ -67,6 +70,7 @@ export class WarpDrive {
       // own scratch: `out` is often _c itself (eta, engage), which the offset must not overwrite
       return out.copy(b.pos).add(this.computeArrivalOffset(target.id, _off));
     }
+    if (target.kind === 'gate') return gateArrival(this.eph, out);
     return out.copy(this.eph.get(target.frame).pos).add(target.offset);
   }
 
@@ -92,6 +96,7 @@ export class WarpDrive {
   targetName(t = this.target): string {
     if (!t) return '';
     if (t.kind === 'body') return BODY_BY_ID[t.id].name;
+    if (t.kind === 'gate') return 'Warp gate';
     return t.label ?? `Coordinates near ${BODY_BY_ID[t.frame].name}`;
   }
 
@@ -210,6 +215,8 @@ export class WarpDrive {
         if (this.target?.kind === 'body') {
           const b = this.eph.get(this.target.id);
           this.ship.turnToward(_b.subVectors(b.pos, pos).normalize(), dt, 0.9);
+        } else if (this.target?.kind === 'gate') {
+          this.ship.turnToward(gatePosition(this.eph, _b).sub(pos).normalize(), dt, 0.9);
         }
         if (k >= 1) {
           this.state = 'idle';

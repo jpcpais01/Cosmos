@@ -94,7 +94,7 @@ export const SYSTEMS: StarSystem[] = [
     // out past the seven planets (all inside 0.4 AU), on the side facing the Sun
     gate: { dir: new Vector3(1, 0, 0), distance: 1.0 * AU_KM },
     exposureFloorAU: 0.035,
-    stars: 'data/stars_kepler385.bin',
+    stars: 'data/stars_kepler385_v2.bin',
     blurb: 'Seven planets bigger than Earth and smaller than Neptune, all closer to their star than Mercury is to the Sun.',
   },
 ];

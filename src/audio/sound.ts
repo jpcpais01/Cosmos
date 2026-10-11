@@ -5,6 +5,7 @@ export class Sound {
   private engine?: { gain: GainNode; filter: BiquadFilterNode; osc: OscillatorNode; osc2: OscillatorNode };
   private warp?: { gain: GainNode; filter: BiquadFilterNode; osc: OscillatorNode; lfo: OscillatorNode };
   private cabin?: GainNode;
+  private tunnel?: { gain: GainNode; low: BiquadFilterNode; high: BiquadFilterNode; osc: OscillatorNode; osc2: OscillatorNode };
   private noise?: AudioBuffer;
   muted = false;
   volume = 0.7;
@@ -100,6 +101,54 @@ export class Sound {
       this.loopNoise().connect(f).connect(g).connect(this.master);
       this.cabin = g;
     }
+    // hyperspace tunnel: a deep roar, a howl that sweeps with the rush and two beating drones
+    {
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+      const low = ctx.createBiquadFilter();
+      low.type = 'lowpass';
+      low.frequency.value = 180;
+      low.Q.value = 1.2;
+      this.loopNoise().connect(low).connect(gain);
+      const high = ctx.createBiquadFilter();
+      high.type = 'bandpass';
+      high.frequency.value = 700;
+      high.Q.value = 6;
+      const hg = ctx.createGain();
+      hg.gain.value = 0.35;
+      this.loopNoise().connect(high).connect(hg).connect(gain);
+      const osc = ctx.createOscillator();
+      osc.type = 'sawtooth';
+      osc.frequency.value = 36;
+      const osc2 = ctx.createOscillator();
+      osc2.type = 'sine';
+      osc2.frequency.value = 36.7;
+      const of = ctx.createBiquadFilter();
+      of.type = 'lowpass';
+      of.frequency.value = 220;
+      const og = ctx.createGain();
+      og.gain.value = 0.18;
+      osc.connect(of);
+      osc2.connect(of);
+      of.connect(og).connect(gain);
+      gain.connect(this.master);
+      osc.start();
+      osc2.start();
+      this.tunnel = { gain, low, high, osc, osc2 };
+    }
+  }
+
+  /** The hyperspace tunnel's sound: level 0..1 (fades with the tunnel), rush 0..1. */
+  setTunnel(level: number, rush: number): void {
+    const ctx = this.ctx;
+    const tu = this.tunnel;
+    if (!ctx || !tu) return;
+    const t = ctx.currentTime;
+    tu.gain.gain.setTargetAtTime(level * (0.55 + 0.35 * rush), t, 0.2);
+    tu.low.frequency.setTargetAtTime(140 + rush * 420, t, 0.3);
+    tu.high.frequency.setTargetAtTime(500 + rush * 1900 + Math.sin(t * 1.7) * 200, t, 0.25);
+    tu.osc.frequency.setTargetAtTime(32 + rush * 14, t, 0.5);
+    tu.osc2.frequency.setTargetAtTime(32.6 + rush * 15, t, 0.5);
   }
 
   private loopNoise(): AudioBufferSourceNode {
@@ -140,7 +189,7 @@ export class Sound {
   }
 
   /** One-shot sounds. */
-  play(kind: 'click' | 'confirm' | 'deny' | 'jump' | 'exit' | 'spool' | 'arrive'): void {
+  play(kind: 'click' | 'confirm' | 'deny' | 'jump' | 'exit' | 'spool' | 'arrive' | 'gateCharge' | 'gateEnter' | 'gateTunnel' | 'gateExit'): void {
     const ctx = this.ctx;
     if (!ctx || !this.master) return;
     const t = ctx.currentTime;
@@ -202,6 +251,30 @@ export class Sound {
       case 'arrive':
         tone(660, 660, 0.1, 'sine', 0.06);
         tone(990, 990, 0.18, 'sine', 0.05, 0.1);
+        break;
+      case 'gateCharge':
+        // the gate winding up: a rising chord, the rings' whine and a swelling rumble
+        tone(55, 220, 5.5, 'sawtooth', 0.05);
+        tone(82.5, 330, 5.5, 'triangle', 0.05);
+        tone(300, 2400, 5.4, 'sine', 0.025);
+        burst(5.6, 120, 2400, 0.3, 2.5);
+        for (let i = 0; i < 6; i++) tone(880 + i * 220, 880 + i * 220, 0.12, 'sine', 0.03, 1 + i * 0.75);
+        break;
+      case 'gateEnter':
+        tone(140, 40, 2.4, 'sawtooth', 0.12);
+        burst(2.5, 400, 6000, 0.4, 1.4);
+        break;
+      case 'gateTunnel':
+        // crossing the portal: a deep boom and a tearing rush
+        tone(70, 18, 3.0, 'sine', 1.0);
+        tone(48, 22, 2.2, 'square', 0.12);
+        burst(2.6, 9000, 60, 1.0, 0.8);
+        tone(2400, 90, 1.2, 'sawtooth', 0.07);
+        break;
+      case 'gateExit':
+        tone(40, 120, 0.4, 'sine', 0.6);
+        tone(120, 30, 2.5, 'sine', 0.6, 0.35);
+        burst(2.4, 5000, 90, 0.8, 1.0);
         break;
     }
   }

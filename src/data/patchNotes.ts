@@ -11,6 +11,16 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     date: '2026-10-11',
+    title: 'Warp gates: jump to another star',
+    notes: [
+      'Every star system now has a warp gate at its edge, the only way to another star. The Solar System\'s is 32 AU out, beyond Neptune, facing Kepler-385 in Cygnus. Kepler-385\'s is 1 AU from its star, on the side that faces home.',
+      'Pick Warp gate on the map (M) and warp there, or use the new gate locations in the Saved locations panel (L). Within 60 km the gate\'s panel opens: choose a star and press Enter or tap Jump.',
+      'The ship lines up with the gate, its rings spin up and the portal charges, then you fly through into a hyperspace tunnel of violet plasma, gold filaments, rings of light and lightning, and come out of the destination\'s gate 4,945 light years away. It has its own sounds too.',
+      'The sky seen from Kepler-385 now has about as many faint stars as ours, so it looks less crowded.',
+    ],
+  },
+  {
+    date: '2026-10-11',
     title: 'Kepler-385: the first star beyond the Sun',
     notes: [
       'Kepler-385, a real Sun-like star 4,940 light years away in Cygnus, is now in the game with its seven planets, at the sizes, orbits and positions astronomers have measured. Each planet is where its transit times put it today.',

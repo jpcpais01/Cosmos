@@ -17,6 +17,11 @@ import { Ship, lookQuat } from './ship/flight';
 import { ShipView } from './ship/shipModel';
 import { CameraRig } from './ship/cameraRig';
 import { WarpDrive, type WarpTarget } from './game/warp';
+import { GateJump } from './game/gateJump';
+import { GATE, gatePosition, gateQuaternion } from './game/gate';
+import { GateView } from './render/gate';
+import { GateTunnel } from './render/gateTunnel';
+import { GatePanel } from './ui/gatePanel';
 import { DEFAULT_LOCATIONS, deleteCustomLocation, loadCustomLocations, renameCustomLocation, saveCustomLocation, type SavedLocation } from './game/locations';
 import { Input } from './game/input';
 import { clearLastFlight, lastFlightLocation, lastFlightTarget, loadLastFlight, resumeMotion, saveLastFlight } from './game/resume';
@@ -133,6 +138,7 @@ async function main(): Promise<void> {
   eph.update(simMs);
   const ship = new Ship(eph);
   const warp = new WarpDrive(eph, ship);
+  const jump = new GateJump(eph, ship);
 
   // --- rendering
   const universe = new Universe(renderer, eph, preset.maxTexture);
@@ -150,6 +156,9 @@ async function main(): Promise<void> {
   const input = new Input(canvas);
   const sound = new Sound();
   const mfd = new Mfd(eph, ship, warp);
+  const gate = new GateView();
+  const tunnel = new GateTunnel();
+  tunnel.compile(renderer);
 
   // --- loading
   let progress = { tex: 0, stars: 0, ship: 0, sky: 0 };
@@ -232,6 +241,9 @@ async function main(): Promise<void> {
   const switchSystem = (id: string) => {
     if (eph.system.id === id || !SYSTEM_BY_ID[id]) return;
     eph.setSystem(id);
+    // a destination in the system left behind means nothing here (the gate target is this system's own gate)
+    const wt = warp.target;
+    if (wt && wt.kind !== 'gate' && systemOf(wt.kind === 'body' ? wt.id : wt.frame) !== id) warp.setTarget(null);
     eph.update(simMs);
     universe.setSystem();
     void universe.preload(undefined, id);
@@ -243,6 +255,7 @@ async function main(): Promise<void> {
     if (!sky.useStars(url)) void sky.loadStars(url, false).then(() => eph.system === sys && sky.useStars(url));
   };
   const goLocation = (l: SavedLocation) => {
+    if (jump.active) return;
     flashFade();
     warp.state = 'idle';
     warp.intensity = 0;
@@ -270,12 +283,13 @@ async function main(): Promise<void> {
     hud.toast(`Saved "${l.name}" · L to see your locations`);
   };
   const setFactor = (f: WarpFactor) => {
-    if (warp.active) return;
+    if (warp.active || jump.active) return;
     warp.factor = f;
     sound.play('click');
   };
   const engage = () => {
     sound.start();
+    if (jump.active) return;
     if (!warp.target) {
       hud.toast('Choose a destination on the map first (M)');
       sound.play('deny');
@@ -412,9 +426,41 @@ async function main(): Promise<void> {
     map.hide();
     engage();
   };
+  const gatePanel = new GatePanel(jump);
+  const startJump = (dest: string) => {
+    sound.start();
+    if (warp.active) return;
+    input.releaseLock();
+    jump.start(dest);
+  };
+  gatePanel.onJump = startJump;
+  gatePanel.onAbort = () => jump.abort();
+  jump.onSwitch = (id) => {
+    switchSystem(id);
+    if (warp.target?.kind === 'gate') warp.setTarget(null);
+    shadowAge = Infinity;
+  };
+  jump.onEvent = (e) => {
+    if (e === 'align') sound.play('confirm');
+    else if (e === 'charge') sound.play('gateCharge');
+    else if (e === 'enter') sound.play('gateEnter');
+    else if (e === 'tunnel') {
+      sound.play('gateTunnel');
+      hud.toast(`Leaving the ${eph.system.id === 'sol' ? 'Solar System' : `${eph.system.name} system`}`, 3000);
+    } else if (e === 'exit') sound.play('gateExit');
+    else if (e === 'arrive') {
+      sound.play('arrive');
+      env.update(0, ship.absPos(new Vector3()), 1, true);
+      hud.toast(`Welcome to ${eph.system.id === 'sol' ? 'the Solar System' : `the ${eph.system.name} system`}`, 4000);
+    } else if (e === 'abort') hud.toast('Jump called off');
+    else if (e === 'denied') {
+      sound.play('deny');
+      hud.toast(jump.message);
+    }
+  };
   const minimap = new Minimap(eph, ship, warp);
   minimap.onClick = toggleMap;
-  hud.root.append(minimap.root);
+  hud.root.append(minimap.root, gatePanel.root);
   $('ui').append(hud.root, map.root);
   input.canLock = () => !map.open && !hud.panelOpen;
   input.onLockChange = (on) => hud.setMouseFlight(on);
@@ -508,9 +554,23 @@ async function main(): Promise<void> {
       tex: universe.views.map((v) => `${v.state.def.id}:${(v.mat.uniforms.uMap.value as { image?: { width: number } }).image?.width}`).join(' '),
     }),
     dbg: (o: Partial<typeof dbg>) => Object.assign(dbg, o),
-    internals: () => ({ universe, sky, post, renderer, shipView, ship, warp, eph, rig, shipMask }),
+    internals: () => ({ universe, sky, post, renderer, shipView, ship, warp, eph, rig, shipMask, gate, jump }),
     /** the star system the ship is in */
     system: () => eph.system.id,
+    /** puts the ship in front of the warp gate (km in front, default the in-system warp arrival point) */
+    gate: (km: number = GATE.arrival) => {
+      const G = gatePosition(eph, new Vector3());
+      const dir = eph.system.gate.dir;
+      ship.frame = eph.star;
+      ship.setAbs(G.clone().addScaledVector(dir, -km));
+      ship.vel.set(0, 0, 0);
+      ship.throttle = 0;
+      ship.updateEnvironment();
+      lookQuat(dir, new Vector3(0, 1, 0).applyQuaternion(gateQuaternion(eph.system)), ship.quat);
+    },
+    /** starts a gate jump (the ship must be near the gate) */
+    jump: (dest: string) => startJump(dest),
+    jumpState: () => ({ state: jump.state, charge: jump.charge, tunnel: jump.tunnel, system: eph.system.id }),
     /** points the ship at a body */
     face: (id: string) => {
       const d = new Vector3().subVectors(eph.get(id).pos, ship.absPos(new Vector3())).normalize();
@@ -584,7 +644,7 @@ async function main(): Promise<void> {
   window.addEventListener('pointerdown', () => sound.start(), { once: true });
 
   // the last flight is kept every few seconds and whenever the page is hidden or closed
-  const saveFlight = () => !intro && saveLastFlight(simMs, ship, warp, rig.mode);
+  const saveFlight = () => !intro && !jump.active && saveLastFlight(simMs, ship, warp, rig.mode);
   window.setInterval(saveFlight, 5000);
   window.addEventListener('pagehide', saveFlight);
   document.addEventListener('visibilitychange', () => document.visibilityState === 'hidden' && saveFlight());
@@ -594,6 +654,8 @@ async function main(): Promise<void> {
   const tmp = new Vector3();
   const tmp2 = new Vector3();
   const tmp3 = new Vector3();
+  const gateRel = new Vector3();
+  const gateQ = new Quaternion();
   const fwd = new Vector3();
   const sunUv = new Vector2();
   const apex = new Vector2(0.5, 0.5);
@@ -625,8 +687,13 @@ async function main(): Promise<void> {
         else hud.closePanels();
         continue;
       }
-      if (code === 'KeyM') toggleMap();
+      if (code === 'KeyM' && !jump.active) toggleMap();
       if (map.open) continue;
+      if ((code === 'Enter' || code === 'NumpadEnter') && !jump.active && jump.gateDistance() < GATE.range) {
+        const dest = gatePanel.firstDestination(eph.system.id);
+        if (dest) startJump(dest);
+        continue;
+      }
       switch (code) {
         case 'KeyV':
         case 'KeyC': {
@@ -639,7 +706,8 @@ async function main(): Promise<void> {
           setFactor(WARP_FACTORS[Number(code.slice(5)) - 1]);
           break;
         case 'KeyJ':
-          if (warp.active) warp.abort();
+          if (jump.active) jump.abort();
+          else if (warp.active) warp.abort();
           else engage();
           break;
         case 'KeyL':
@@ -757,6 +825,7 @@ async function main(): Promise<void> {
     ship.update(dt, fi);
     if (fi.throttleDelta !== 0 || fi.brake) hud.syncTouchThrottle(ship.throttle);
     warp.update(dt);
+    jump.update(dt);
     prof.cpu('Flight & orbits');
 
     if (map.open) {
@@ -773,7 +842,9 @@ async function main(): Promise<void> {
     const look = map.open ? ([0, 0] as [number, number]) : input.consumeLook();
     if (input.consumeRecenter()) rig.resetLook();
     const warpRumble = warp.intensity * (0.3 + 0.7 * Math.log(warp.factor) / Math.log(100)) + warp.spool * 0.25;
-    rig.update(dt, ship.quat, look, input.dragging, warp.intensity, warp.shake, t, warpRumble);
+    const jumpRumble = jump.charge * 0.25 + jump.tunnel * (0.35 + 0.5 * jump.speed) + (jump.state === 'entering' ? 0.4 : 0);
+    rig.update(dt, ship.quat, look, input.dragging, Math.max(warp.intensity, jump.tunnel * (0.5 + 0.5 * jump.speed)),
+      Math.max(warp.shake, jump.shake), t, Math.max(warpRumble, jumpRumble));
     ship.absPos(camAbs).addScaledVector(rig.offset, 0.001);
     camQ.copy(rig.quat);
 
@@ -840,9 +911,10 @@ async function main(): Promise<void> {
 
     const parts = shipView.parts!;
     parts.root.quaternion.copy(ship.quat);
-    const thr = warp.active ? Math.max(0.15, warp.spool) : Math.abs(ship.throttle) * (fi.boost ? 1.4 : 1);
+    const thr = warp.active ? Math.max(0.15, warp.spool) : jump.active ? Math.max(0.3, jump.charge, jump.tunnel)
+      : Math.abs(ship.throttle) * (fi.boost ? 1.4 : 1);
     engThr = MathUtils.lerp(engThr, Math.min(1.3, thr * 0.9 + 0.02), 1 - Math.exp(-dt * 6));
-    shipView.setEngines(engThr, Math.max(warp.spool, warp.intensity), t);
+    shipView.setEngines(engThr, Math.max(warp.spool, warp.intensity, jump.charge, jump.tunnel), t);
     const eg = 1 / distExposure;
     shipView.setEmissiveGain(eg);
     parts.nav.mat.uniforms.uPx.value = pr;
@@ -852,10 +924,10 @@ async function main(): Promise<void> {
       pitch: MathUtils.clamp(ship.angVel.x / 1.1, -1, 1),
       yaw: MathUtils.clamp(ship.angVel.y / 0.88, -1, 1),
       roll: MathUtils.clamp(ship.angVel.z / 1.54, -1, 1),
-      throttle: warp.active ? 1 : ship.throttle,
+      throttle: warp.active || jump.active ? 1 : ship.throttle,
       boost: fi.boost,
-      warp: Math.max(warp.spool, warp.intensity),
-      shake: warp.shake,
+      warp: Math.max(warp.spool, warp.intensity, jump.charge, jump.tunnel),
+      shake: Math.max(warp.shake, jump.shake),
       firstPerson: cockpit,
     });
     shipView.cabin.intensity = (cockpit ? 0.35 : 0.15) * eg * dbg.cabin;
@@ -868,6 +940,14 @@ async function main(): Promise<void> {
     const flick = 1 + fNorm * (0.5 * Math.sin(t * 7.3 + warpSeed * 20) * Math.sin(t * 3.1 + warpSeed * 9) + 2.5 * Math.max(0, Math.sin(t * 17 + warpSeed * 40)) ** 12);
     shipView.warpLight.color.setHSL(0.6, 0.12, 0.75);
     shipView.warpLight.intensity = (warp.intensity * 5 + warp.spool * 3 + warp.flash * 5) * flick * (cockpit ? 0.8 : 1) * eg;
+    if (jump.active) {
+      // the gate's cyan glow while it charges, then the tunnel's violet and gold, with lightning flickers
+      const bolt = Math.max(0, Math.sin(t * 23 + jump.seed * 50)) ** 30 * jump.tunnel;
+      const hue = jump.tunnel > 0.5 ? 0.8 - 0.06 * Math.sin(t * 1.3) + 0.12 * Math.max(0, Math.sin(t * 0.7 + jump.seed * 9)) ** 4 : 0.53;
+      shipView.warpLight.color.setHSL(hue, 0.85, 0.62 + 0.3 * bolt);
+      shipView.warpLight.intensity = (jump.charge * 4 + jump.open * 6 + jump.tunnel * (5 + 4 * jump.speed) + jump.flash * 14 + bolt * 20)
+        * (cockpit ? 0.8 : 1) * eg;
+    }
     prof.cpu('Ship & lighting');
     mfd.update(dt, simMs, cockpit);
     prof.cpu('Cockpit screens');
@@ -893,10 +973,32 @@ async function main(): Promise<void> {
     prof.gpu('Sky & stars');
     renderer.setRenderTarget(post.hdr);
     renderer.clear(true, true, false);
-    renderer.render(sky.scene, sky.camera);
-    prof.gpu('Planets & moons');
-    renderer.render(universe.scene, universe.camera);
+    // inside the jump tunnel nothing outside the ship can be seen
+    const inTunnel = jump.tunnel >= 0.999;
+    if (!inTunnel) {
+      renderer.render(sky.scene, sky.camera);
+      prof.gpu('Planets & moons');
+      renderer.render(universe.scene, universe.camera);
+    }
     shipMaskUniforms.uShipMaskOn.value = 0;
+    // the warp gate, when there is one in reach
+    gate.charge = jump.charge;
+    gate.open = jump.open;
+    gatePosition(eph, gateRel).sub(camAbs);
+    tmp.subVectors(sun.pos, tmp2.copy(gateRel).add(camAbs));
+    const gateSunD = tmp.length();
+    if (!inTunnel && gate.update(dt, t, gateRel, gateQuaternion(eph.system, gateQ), camQ, tmp.multiplyScalar(1 / gateSunD),
+      starIrradiance(sun.def, gateSunD, tmp3), eg, universe.camera.fov, cssW / cssH, bufH, pr)) {
+      prof.gpu('Warp gate');
+      gate.render(renderer);
+    }
+    if (jump.tunnel > 0) {
+      prof.gpu('Jump tunnel');
+      tunnel.frame.copy(jump.tunnelFrame);
+      tunnel.render(renderer, universe.camera, camQ, {
+        time: t, travel: jump.travel, speed: jump.speed, alpha: jump.tunnel, gain: eg, seed: jump.seed,
+      });
+    }
     prof.gpu('Ship');
     // only the ship writes this depth, so it doubles as the ship mask the post pass reads (warp distortion
     // bends space outside the hull, and the hull hides the sun glare)
@@ -922,21 +1024,23 @@ async function main(): Promise<void> {
       apex,
       warp: warpVis,
       warpSpeed: 1.2 + fNorm * 2.5,
-      flash: warp.flash,
-      bubble: Math.max(warp.spool * 0.55, warp.intensity * (0.6 + 0.4 * fNorm)),
-      shake: Math.max(warp.shake, warp.intensity * fNorm * 0.18),
-      spool: warp.spool,
-      rays: Math.max(warp.spool * 0.35, warpVis),
+      flash: Math.max(warp.flash, jump.flash),
+      bubble: Math.max(warp.spool * 0.55, warp.intensity * (0.6 + 0.4 * fNorm), jump.tunnel * (0.35 + 0.4 * jump.speed), jump.open * 0.4),
+      shake: Math.max(warp.shake, warp.intensity * fNorm * 0.18, jump.shake * 0.8),
+      spool: Math.max(warp.spool, jump.charge * 0.7 * (1 - jump.tunnel)),
+      rays: Math.max(warp.spool * 0.35, warpVis, jump.open * 0.6 * (1 - jump.tunnel)),
       chaos: fNorm,
       seed: warpSeed,
-      spike: Math.max(rig.spike.amount, warp.flash * 0.9),
+      spike: Math.max(rig.spike.amount, warp.flash * 0.9, jump.flash),
       spikeAngle: rig.spike.angle,
     });
     prof.gpuEnd();
     prof.cpu('Render calls');
 
     // HUD
-    sound.update(Math.abs(ship.throttle), fi.boost, warp.spool, warp.intensity, cockpit);
+    sound.update(Math.abs(ship.throttle), fi.boost, Math.max(warp.spool, jump.charge * 0.6), warp.intensity, cockpit);
+    sound.setTunnel(jump.tunnel, jump.speed);
+    gatePanel.update(eph.system.id, !warp.active && jump.gateDistance() < GATE.range, intro || map.open);
     const target = warp.target;
     const tp = target ? warp.resolve(tmp2) : null;
     const tDist = tp ? tp.distanceTo(ship.absPos(tmp)) : 0;
@@ -985,7 +1089,7 @@ async function main(): Promise<void> {
   const mk = new Vector3();
   const updateMarkers = (tp: Vector3 | null) => {
     // target bracket
-    if (tp && warp.state !== 'cruise') {
+    if (tp && warp.state !== 'cruise' && jump.tunnel === 0) {
       mk.subVectors(tp, camAbs);
       const dist = mk.length();
       let r = 0;
@@ -1009,12 +1113,24 @@ async function main(): Promise<void> {
     } else hud.setMarker(null, null, '');
 
     // body labels
-    if (!settings.labels || map.open || warp.state === 'cruise') {
+    if (!settings.labels || map.open || warp.state === 'cruise' || jump.tunnel > 0) {
       hud.setLabels([]);
       return;
     }
     const items: { x: number; y: number; text: string; sub: string }[] = [];
     const placed: [number, number][] = [];
+    // the warp gate, while it is near enough to matter and not already the target
+    if (gate.distance < 2e5 && warp.target?.kind !== 'gate' && !jump.active) {
+      mk.copy(gateRel);
+      const cz = mk.clone().applyQuaternion(camQ.clone().invert()).z;
+      project(mk, mk);
+      if (cz < 0 && Math.abs(mk.x) <= 1 && Math.abs(mk.y) <= 1) {
+        const rCss = Math.atan(GATE.span / Math.max(gate.distance, 1e-3)) * cssPerRad();
+        const x = (mk.x * 0.5 + 0.5) * cssW, y = (0.5 - mk.y * 0.5) * cssH - rCss;
+        placed.push([x, y]);
+        items.push({ x, y, text: 'Warp gate', sub: fmtDistance(gate.distance) });
+      }
+    }
     const sys = ship.frame.def.kind === 'moon' && ship.frame.parent ? ship.frame.parent : ship.frame;
     const sorted = [...universe.active].sort((a, b) => a.distance - b.distance);
     for (const v of sorted) {

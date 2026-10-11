@@ -587,6 +587,7 @@ export class Hud {
       ['10c', 'Tap to change the warp factor: 1c, 3c, 10c, 50c, 100c'],
       ['Pin', 'Saved locations: save this spot, jump back, rename or delete'],
       ['ENGAGE', 'Jump to warp · tap again to drop out'],
+      ['Warp gate', 'Near a gate (Warp gate on the map), tap a star on the gate panel to jump there'],
       ['•••', 'Labels, sound, settings, controls, update, fullscreen'],
     ];
     const rows: [string, string][] = TOUCH ? touchRows : [
@@ -599,9 +600,10 @@ export class Hud {
       ['Right-click', 'Mouse flight on / off: the ship smoothly follows the mouse; off gives you the pointer back for buttons'],
       ['Left-drag', 'Look around (cockpit) / orbit camera (outside)'],
       ['V', 'Cockpit → chase → far chase view'],
-      ['M', 'Solar system map: pick a body or any coordinates'],
+      ['M', 'System map: pick a body, the warp gate or any coordinates'],
       ['1 – 5', 'Warp factor 1c, 3c, 10c, 50c, 100c'],
-      ['J', 'Engage warp / drop out'],
+      ['J', 'Engage warp / drop out · call off a gate jump'],
+      ['Enter', 'Jump through the warp gate when you are near one (or pick a star on the gate panel)'],
       ['L', 'Saved locations: jump to, rename or delete them'],
       ['B', 'Save this spot (position, heading and time) to your locations'],
       ['T', 'Toggle labels'],

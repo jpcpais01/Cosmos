@@ -5,9 +5,12 @@ import type { WarpDrive, WarpTarget } from '../game/warp';
 import { AU_KM, C_KMS, WARP_FACTORS, type WarpFactor } from '../sim/constants';
 import { fmtDistance, fmtDuration } from './format';
 import { bodyRgb, drawBody } from './bodyGlyph';
+import { GATE, gatePosition } from '../game/gate';
+import { SYSTEMS, lightYearsBetween } from '../sim/systems';
 
 const FONT = "'Rajdhani', 'Segoe UI', system-ui, sans-serif";
 const AMBER = 'rgba(255,179,71,0.95)';
+const GATE_COLOR = 'rgba(190,160,255,0.95)';
 /** Off-screen margin (px) kept when clipping orbit lines. */
 const CLIP = 40;
 const AU_RINGS = [0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 30, 40, 50];
@@ -86,6 +89,9 @@ export class SystemMap {
   private orbits = new Map<string, Orbit>();
   private selection: WarpTarget | null = null;
   private hover: BodyState | null = null;
+  /** where the warp gate was drawn last frame (screen px) */
+  private gateXY: [number, number] | null = null;
+  private gateButton: HTMLButtonElement | null = null;
   private pointers = new Map<number, { x: number; y: number }>();
   private dragDist = 0;
   private pinch0 = 0;
@@ -141,6 +147,24 @@ export class SystemMap {
       }
       this.list.append(row);
     }
+    // the warp gate, out past the planets
+    const g = el('button', 'map-body map-gate', 'Warp gate');
+    g.style.setProperty('--dot', 'rgb(190,160,255)');
+    g.onclick = () => this.focusGate();
+    this.gateButton = g;
+    const row = el('div', 'map-group');
+    row.append(g);
+    this.list.append(row);
+  }
+
+  /** Centres on the warp gate, with its star in view, and selects it. */
+  focusGate(): void {
+    const sys = this.eph.system;
+    this.follow = null;
+    gatePosition(this.eph, this.center);
+    const flat = Math.hypot(sys.gate.dir.x, sys.gate.dir.z) * sys.gate.distance;
+    this.targetScale = (Math.min(this.W, this.H) * 0.4) / Math.max(flat * 0.35, AU_KM * 0.05);
+    this.select({ kind: 'gate' });
   }
 
   /** Centres on a body and zooms so its moon system (or the body) fits. */
@@ -312,6 +336,10 @@ export class SystemMap {
   }
 
   private click(x: number, y: number): void {
+    if (this.gateXY && Math.hypot(this.gateXY[0] - x, this.gateXY[1] - y) < 16) {
+      this.select({ kind: 'gate' });
+      return;
+    }
     const h = this.pick(x, y);
     if (h) {
       this.select({ kind: 'body', id: h.state.def.id });
@@ -333,6 +361,7 @@ export class SystemMap {
     this.distEl = null;
     this.chipEls = [];
     for (const [id, b] of this.listButtons) b.classList.toggle('on', t?.kind === 'body' && t.id === id);
+    this.gateButton?.classList.toggle('on', t?.kind === 'gate');
     if (!t) {
       this.info.append(el('div', 'muted', 'Select a destination'));
       return;
@@ -344,6 +373,12 @@ export class SystemMap {
       const kind = d.kind === 'star' ? 'Star' : d.kind === 'planet' ? 'Planet' : d.kind === 'dwarf' ? 'Dwarf planet' : `Moon of ${this.eph.get(d.parent!).def.name}`;
       this.info.append(el('div', 'info-kind', `${kind} · radius ${Math.round(d.radius).toLocaleString('en-US')} km`));
       this.info.append(el('div', 'info-text', d.info));
+    } else if (t.kind === 'gate') {
+      const here = this.eph.system;
+      const to = SYSTEMS.filter((o) => o.id !== here.id)
+        .map((o) => `${o.name} (${Math.round(lightYearsBetween(here, o)).toLocaleString('en-US')} light years)`).join(', ');
+      this.info.append(el('div', 'info-kind', `Warp gate · ${(here.gate.distance / AU_KM).toFixed(0)} AU from ${this.eph.star.def.name}`));
+      this.info.append(el('div', 'info-text', `The way to other stars: ${to}. Warp here, fly within ${GATE.range} km and choose a destination at the gate.`));
     } else {
       this.info.append(el('div', 'info-kind', 'Coordinates in the ecliptic plane'));
     }
@@ -579,6 +614,29 @@ export class SystemMap {
           big ? `700 12px ${FONT}` : `500 12px ${FONT}`,
           on ? AMBER : hov ? '#ffffff' : big ? 'rgba(225,238,255,0.92)' : 'rgba(185,205,230,0.72)',
         );
+      }
+    }
+
+    // the warp gate: a small ring standing edge-on, in violet
+    {
+      const g = gatePosition(this.eph, _a);
+      const gx = this.sx(g.x), gy = this.sy(g.z);
+      this.gateXY = null;
+      if (gx > -40 && gy > -40 && gx < W + 40 && gy < H + 40) {
+        this.gateXY = [gx, gy];
+        const on = sel?.kind === 'gate';
+        ctx.strokeStyle = on ? AMBER : GATE_COLOR;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.ellipse(gx, gy, 6, 6, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(gx, gy, 10 + Math.sin(time * 2) * 1.5, 0, Math.PI * 2);
+        ctx.globalAlpha = 0.45;
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+        this.label('WARP GATE', gx + 14, gy, `700 12px ${FONT}`, on ? AMBER : GATE_COLOR);
       }
     }
 

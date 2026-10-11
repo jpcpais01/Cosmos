@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Builds the bright-star sky seen from Kepler-385: public/data/stars_kepler385.bin.
+"""Builds the bright-star sky seen from Kepler-385: public/data/stars_kepler385_v2.bin.
 
-Usage: python3 tools/build_system_stars.py [public/data/stars_kepler385.bin] [maglimit]
+Usage: python3 tools/build_system_stars.py [public/data/stars_kepler385_v2.bin] [maglimit]
 
 Kepler-385 is 1,516 pc from the Sun and 360 pc above the galactic plane, so none of our familiar stars
 are near it: almost all of them are too far away to see from there, and its own neighbours have never
@@ -10,7 +10,8 @@ Way's disc around Kepler-385 (thin and thick discs with exponential scale length
 luminosity function, younger and brighter stars hugging the plane more closely, and a dust layer that
 dims light passing near the plane), then kept if they would shine brighter than the magnitude limit.
 The result has the right number of stars of each brightness and colour, and more of them toward the
-galactic plane, which from 360 pc above it lies a little below the Milky Way's band.
+galactic plane, which from 360 pc above it lies a little below the Milky Way's band. Past magnitude 6
+the faint stars are thinned to the completeness of the Sun's catalogue, so both skies look alike.
 
 Same layout as tools/build_stars.py (int16 x3 direction * 32767, uint8 (mag + 2) * 16, uint8
 (B-V + 0.5) * 100), with directions in Kepler-385's frame (src/sim/systems.ts: +X toward the Sun,
@@ -22,7 +23,7 @@ import sys
 
 import numpy as np
 
-DST = sys.argv[1] if len(sys.argv) > 1 else 'public/data/stars_kepler385.bin'
+DST = sys.argv[1] if len(sys.argv) > 1 else 'public/data/stars_kepler385_v2.bin'
 MAGLIM = float(sys.argv[2]) if len(sys.argv) > 2 else 9.0
 RA, DEC, DIST = 294.3385109, 50.3365178, 1516.0
 EPS = math.radians(23.4392911)
@@ -135,6 +136,25 @@ for M, n0, h in LF:
 D = np.concatenate(dirs)
 Mg = np.concatenate(mags)
 B = np.concatenate(bvs)
+
+# The Sun's own catalogue (public/data/stars.bin) thins out past magnitude 8 as surveys get incomplete.
+# Thin these faint stars the same way, magnitude bin by magnitude bin, so the two skies look alike
+# rather than this one looking twice as crowded with faint stars.
+try:
+    sol = np.frombuffer(open('public/data/stars.bin', 'rb').read(), dtype=np.uint8).reshape(-1, 8)
+    sol_m = sol[:, 6] / 16.0 - 2
+    edges = np.arange(6.0, MAGLIM + 0.25, 0.25)
+    keep = np.ones(len(Mg), bool)
+    for lo, hi in zip(edges[:-1], edges[1:]):
+        mine = (Mg > lo) & (Mg <= hi)
+        n_sol = int(((sol_m > lo) & (sol_m <= hi)).sum())
+        n_me = int(mine.sum())
+        if n_me > n_sol > 0:
+            keep[mine] = rng.uniform(size=n_me) < n_sol / n_me
+    keep[Mg > edges[-1]] = False
+    D, Mg, B = D[keep], Mg[keep], B[keep]
+except FileNotFoundError:
+    pass
 order = np.argsort(Mg)
 D, Mg, B = D[order], Mg[order], B[order]
 out = bytearray()

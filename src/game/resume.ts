@@ -18,7 +18,8 @@ const LIVE_MS = 60 * 60 * 1000;
 type Vec3 = [number, number, number];
 
 interface StoredTarget {
-  kind: 'body' | 'point';
+  kind: 'body' | 'point' | 'gate';
+  /** body id; for a gate, the star of its system */
   id: string;
   offset?: Vec3;
   label?: string;
@@ -86,6 +87,7 @@ export function saveLastFlight(simMs: number, ship: Ship, warp: WarpDrive, view:
     factor: warp.factor,
     target: !t ? null
       : t.kind === 'body' ? { kind: 'body', id: t.id }
+      : t.kind === 'gate' ? { kind: 'gate', id: ship.frame.def.id }
       : { kind: 'point', id: t.frame, offset: [t.offset.x, t.offset.y, t.offset.z], label: t.label },
   };
   try {
@@ -132,6 +134,7 @@ export function lastFlightTarget(f: LastFlight): { target: WarpTarget | null; fa
   let target: WarpTarget | null = null;
   if (t && BODY_BY_ID[t.id]) {
     if (t.kind === 'body') target = { kind: 'body', id: t.id };
+    else if (t.kind === 'gate') target = systemOf(t.id) === systemOf(f.frame) ? { kind: 'gate' } : null;
     else if (finite(t.offset, 3)) target = { kind: 'point', frame: t.id, offset: new Vector3(...t.offset!), label: t.label };
   }
   return { target, factor };
