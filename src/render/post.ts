@@ -127,6 +127,7 @@ void main() {
   // warp bubble lensing: radial compression toward the apex with a refractive ring
   float hull = texture(uScene, uv).a; // 1 where the ship was drawn
   float space = 1.0 - clamp(hull, 0.0, 1.0);
+  float inside = 1.0 - space;
   vec2 dv = (uv - uApex) * aspect;
   float r = length(dv);
   float ring = exp(-pow((r - 0.55) / 0.22, 2.0));
@@ -165,6 +166,16 @@ void main() {
     lens += radial * uFlash * 0.07 * exp(-pow((r - sr) / 0.09, 2.0));
   }
   lens = mix(dv, lens, space);
+  // on the ship itself (the cabin, or the hull in chase view) the warp is only a faint heat-haze shimmer
+  float haze = 0.0;
+  if (uBubble > 0.001 && inside > 0.001) {
+    vec2 hp = uv * aspect * 7.0;
+    float h1 = vnoise3(vec3(hp, uTime * 0.7 + uSeed * 13.0));
+    float h2 = vnoise3(vec3(hp * 1.9 + 4.1, uTime * 1.1 + 2.3));
+    lens += (vec2(h1, h2) - 0.5) * 0.004 * (1.0 + 0.6 * uChaos) * uBubble * inside;
+    // a soft band of warp light sweeps slowly from the front of the cabin to the back
+    haze = smoothstep(0.55, 1.0, sin(r * 5.0 - uTime * (1.2 + 0.8 * uChaos) + h1 * 2.5)) * uBubble * inside;
+  }
   // the light trails flow through a morphing field: their angle wanders with distance and time, so each
   // shaft bends and undulates instead of shooting out dead straight
   float flowT = uTime * uWarpSpeed;
@@ -176,7 +187,7 @@ void main() {
   float trailRipple = 0.5 + 0.5 * sin(lr * (9.0 + 7.0 * uChaos) - uTime * (4.0 + 3.0 * uWarpSpeed) + n1 * (6.0 + 6.0 * uChaos));
   vec2 suv = uApex + lens / aspect;
   // chromatic aberration grows with warp
-  float ca = uBubble * 0.006 * r * (1.0 + 2.5 * wild) + 0.0006 * dot(uv - 0.5, uv - 0.5);
+  float ca = uBubble * 0.006 * r * (1.0 + 2.5 * wild) * space + 0.0006 * dot(uv - 0.5, uv - 0.5);
   vec2 cdir = normalize(dv + 1e-5) / aspect;
   vec3 scene;
   scene.r = texture(uScene, suv + cdir * ca).r;
@@ -188,6 +199,7 @@ void main() {
   float adapt = clamp(pow(0.16 / max(avg, 1e-4), 0.55), 0.3, 2.2);
   float exposure = uExposure * mix(1.0, adapt, uAdaptStrength);
   vec3 col = mix(scene, bloom, uBloomStrength) * exposure;
+  col *= 1.0 + haze * vec3(0.06, 0.09, 0.16);
 
   // Lens flare from the Sun: visibility measured from the scene itself (occluded by planets and the cockpit)
   if (uSunOn > 0.0) {
@@ -231,7 +243,7 @@ void main() {
     vec3 coreCol = mix(vec3(0.55, 0.75, 1.0), warpHue(uSeed + uTime * 0.07 + ang * 0.08), uChaos * 0.55);
     vec3 core = coreCol * pow(vnoise3(wpolar * 16.0 + vec3(3.0, 0.0, lr * 0.9 - flowT * 0.5)), 3.0) * (0.7 + 0.8 * wild) / (1.0 + r * 3.5);
     shafts *= flick;
-    col += (acc * vec3(0.8, 0.9, 1.0) * shafts * 0.3 + core * shafts) * uRays * smoothstep(0.0, 0.08, r) * (0.25 + 0.75 * space);
+    col += (acc * vec3(0.8, 0.9, 1.0) * shafts * 0.3 + core * shafts) * uRays * smoothstep(0.0, 0.08, r) * space;
   }
 
   // Warp tunnel: sparse light streaks scrolling out of the apex (polar coordinates, log-radius)
@@ -240,7 +252,7 @@ void main() {
     float occl = smoothstep(0.52, 0.72, veins) * smoothstep(0.12, 0.6, r);
     float edge = smoothstep(0.45, 1.35, r);
     float horizon = exp(-pow((r - 0.11) / 0.045, 2.0));
-    col *= 1.0 - uWarp * clamp(((0.7 * occl + 0.5 * horizon) * space + 0.55 * edge * (0.5 + veins)) * (0.75 + 0.5 * wild), 0.0, 0.93);
+    col *= 1.0 - uWarp * space * clamp((0.7 * occl + 0.5 * horizon + 0.55 * edge * (0.5 + veins)) * (0.75 + 0.5 * wild), 0.0, 0.93);
     // flowing ribbons of light: noise stretched along the log-radius, scrolling outward and following the
     // morphing trail field, so the tunnel wall shimmers like rippling silk rather than a hail of dashes
     float z = lr * 0.55 - flowT * 0.45;
@@ -254,10 +266,10 @@ void main() {
     vec3 tunnel = tint * ribbons * (0.75 + 0.75 * uChaos) * mask;
     // glow of the warp bubble around the apex
     tunnel += vec3(0.6, 0.8, 1.0) * 0.18 / (1.0 + r * r * 160.0);
-    col += tunnel * uWarp * 0.55;
+    col += tunnel * uWarp * 0.55 * space;
   }
   // entry / exit flash: bright at the apex, a soft veil elsewhere
-  col += vec3(0.75, 0.88, 1.0) * uFlash * (0.25 + 2.5 / (1.0 + r * r * 30.0));
+  col += vec3(0.75, 0.88, 1.0) * uFlash * (0.25 + 2.5 / (1.0 + r * r * 30.0)) * (space + 0.15 * inside);
 
   vec3 outc = agx(col);
   // vignette + grain + dither
