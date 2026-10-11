@@ -2,7 +2,7 @@ import {
   AdditiveBlending, BufferAttribute, BufferGeometry, CanvasTexture, Color, CustomBlending, DirectionalLight,
   DoubleSide, Group, Mesh, MeshBasicMaterial, MeshPhysicalMaterial, MeshStandardMaterial, NoColorSpace, Object3D,
   OneFactor, OneMinusSrcAlphaFactor, PCFShadowMap, PointLight, Points, Scene, ShaderMaterial, SRGBColorSpace,
-  Texture, TextureLoader, Vector2, Vector3, type Material, type WebGLRenderer,
+  Texture, TextureLoader, Vector2, Vector3, ZeroFactor, type Material, type WebGLRenderer,
 } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { Pilot, removeBakedControls } from './pilot';
@@ -90,6 +90,9 @@ function glassMaterial(): MeshPhysicalMaterial {
   m.blending = CustomBlending;
   m.blendSrc = OneFactor;
   m.blendDst = OneMinusSrcAlphaFactor;
+  // leave the alpha channel (the post pass's ship mask) alone: what is seen through the glass is space
+  m.blendSrcAlpha = ZeroFactor;
+  m.blendDstAlpha = OneFactor;
   const outside = { value: 0 };
   m.userData.outside = outside;
   m.onBeforeCompile = (s) => {
