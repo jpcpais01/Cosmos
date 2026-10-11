@@ -9,6 +9,7 @@ export interface Settings {
   invertY: boolean;
   sensitivity: number;
   labels: boolean;
+  fps: boolean;
   sound: boolean;
   volume: number;
 }
@@ -23,7 +24,7 @@ export function defaultQuality(): Quality {
 }
 
 export function loadSettings(): Settings {
-  const d: Settings = { quality: defaultQuality(), invertY: false, sensitivity: 1, labels: true, sound: true, volume: 0.7 };
+  const d: Settings = { quality: defaultQuality(), invertY: false, sensitivity: 1, labels: true, fps: true, sound: true, volume: 0.7 };
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (raw) return { ...d, ...(JSON.parse(raw) as Partial<Settings>) };
@@ -119,6 +120,7 @@ export class Hud {
   private locSub = el('div', 'loc-sub');
   private dateEl = el('div', 'date');
   private scaleEl = el('div', 'tscale');
+  private fpsEl = el('div', 'fps');
   private warpTarget = el('div', 'warp-target');
   private warpEta = el('div', 'warp-eta');
   private factorBtns = new Map<WarpFactor, HTMLButtonElement>();
@@ -137,6 +139,7 @@ export class Hud {
   readonly helpPanel = el('div', 'panel modal hidden');
   private soundBtn: HTMLButtonElement;
   private labelsBtn: HTMLButtonElement;
+  private fpsCheck?: HTMLInputElement;
   readonly touch = el('div', 'touch hidden');
   stick = { x: 0, y: 0 };
   touchThrottle: number | null = null;
@@ -154,7 +157,7 @@ export class Hud {
       btn('NOW', 'Back to the real current time', () => actions.timeNow(), 'btn small'),
       this.scaleEl,
     );
-    tl.append(this.locName, this.locSub, this.dateEl, timeRow);
+    tl.append(this.locName, this.locSub, this.dateEl, timeRow, this.fpsEl);
 
     // top-right toolbar
     const tr = el('div', 'hud-tr');
@@ -203,7 +206,7 @@ export class Hud {
     this.refreshToggles();
   }
 
-  private toggle(k: 'sound' | 'labels'): void {
+  toggle(k: 'sound' | 'labels' | 'fps'): void {
     this.settings[k] = !this.settings[k];
     this.refreshToggles();
     saveSettings(this.settings);
@@ -214,6 +217,8 @@ export class Hud {
     this.soundBtn.classList.toggle('off', !this.settings.sound);
     this.labelsBtn.classList.toggle('off', !this.settings.labels);
     this.labelLayer.style.display = this.settings.labels ? '' : 'none';
+    this.fpsEl.style.display = this.settings.fps ? '' : 'none';
+    if (this.fpsCheck) this.fpsCheck.checked = this.settings.fps;
   }
 
   showPanel(p: HTMLElement): void {
@@ -314,6 +319,12 @@ export class Hud {
       this.commit();
     };
     row('Invert pitch', inv);
+    const fps = el('input');
+    fps.type = 'checkbox';
+    fps.checked = s.fps;
+    fps.onchange = () => this.toggle('fps');
+    this.fpsCheck = fps;
+    row('Show FPS counter', fps);
     const vol = el('input');
     vol.type = 'range';
     vol.min = '0';
@@ -352,6 +363,7 @@ export class Hud {
       ['J', 'Engage warp / drop out'],
       ['L', 'Saved locations'],
       ['T', 'Toggle labels'],
+      ['G', 'Toggle the FPS counter'],
       [', / . / P', 'Slower / faster / pause time'],
       ['F', 'Fullscreen'],
       ['H', 'This help'],
@@ -461,6 +473,15 @@ export class Hud {
     else if (s.warpState === 'exiting') st = 'DROPPING OUT OF WARP';
     this.status.textContent = st;
     this.status.classList.toggle('show', !!st);
+  }
+
+  /** Frame-rate readout: frames per second, mean frame time and the dynamic render scale. */
+  setFps(fps: number, ms: number, renderScale: number): void {
+    if (!this.settings.fps) return;
+    const res = renderScale < 0.999 ? ` · RES ${Math.round(renderScale * 100)}%` : '';
+    this.fpsEl.textContent = `${Math.round(fps)} FPS · ${ms.toFixed(1)} ms${res}`;
+    this.fpsEl.classList.toggle('warn', fps < 50 && fps >= 28);
+    this.fpsEl.classList.toggle('bad', fps < 28);
   }
 
   /** Positions the target bracket; x/y in CSS px, or null when off-screen with an edge angle. */

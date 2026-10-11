@@ -33,6 +33,7 @@ Cosmos lets you fly a small white starship through a real-scale Solar System in 
 | J | Engage warp, or drop out of warp |
 | L | Saved locations |
 | T | Toggle labels |
+| G | Toggle the FPS counter |
 | , / . / P | Slower time, faster time, pause |
 | F | Fullscreen |
 | H | Help |

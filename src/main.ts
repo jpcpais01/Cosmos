@@ -435,6 +435,7 @@ async function main(): Promise<void> {
   let t = 0;
   let frameAcc = 0, frameN = 0, lastScaleChange = 0;
   let fpsAvg = 1 / 60;
+  let fpsTime = 0, fpsFrames = 0;
 
   const project = (rel: Vector3, out: Vector3) => out.copy(rel).applyMatrix4(universe.camera.matrixWorldInverse).applyMatrix4(universe.camera.projectionMatrix);
 
@@ -473,6 +474,9 @@ async function main(): Promise<void> {
           hud.refreshToggles();
           saveSettings(settings);
           break;
+        case 'KeyG':
+          hud.toggle('fps');
+          break;
         case 'KeyF':
           if (document.fullscreenElement) void document.exitFullscreen();
           else void document.documentElement.requestFullscreen?.().catch(() => undefined);
@@ -505,6 +509,14 @@ async function main(): Promise<void> {
     frameAcc += rawDt;
     frameN++;
     fpsAvg += (rawDt - fpsAvg) * 0.05;
+    // on-screen counter: real frames per second over half-second windows
+    fpsTime += rawDt;
+    fpsFrames++;
+    if (fpsTime >= 0.5) {
+      hud.setFps(fpsFrames / fpsTime, (fpsTime / fpsFrames) * 1000, dynScale);
+      fpsTime = 0;
+      fpsFrames = 0;
+    }
     if (frameAcc > 2) {
       const avg = frameAcc / frameN;
       frameAcc = 0;

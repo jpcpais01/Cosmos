@@ -262,6 +262,24 @@ body {
   color: var(--amber);
 }
 
+.fps {
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  font-variant-numeric: tabular-nums;
+  color: #7dffa8;
+  text-shadow: 0 0 6px rgba(0, 0, 0, 0.8);
+}
+
+.fps.warn {
+  color: var(--amber);
+}
+
+.fps.bad {
+  color: var(--red);
+}
+
 .hud-tr {
   position: absolute;
   right: calc(14px + var(--safe-r));
