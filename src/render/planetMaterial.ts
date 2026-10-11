@@ -243,6 +243,9 @@ void main() {
   float wide = textureGrad(uAux, uv, gdx * 12.0, gdy * 12.0).g;
   float water = aux.g * smoothstep(0.35, 0.8, wide);
   float lights = aux.b;
+  // Clouds are part of the surface picture: the 8K cloud map, fixed to the ground (no drift,
+  // no separate layer or shadows), read from the same lookup as the ocean mask.
+  float cloud = smoothstep(0.08, 0.95, aux.r);
 #endif
 
   float detailShade = 1.0;
@@ -252,7 +255,7 @@ void main() {
   float foot = tDepth * uPixelAngle;
   float detail = smoothstep(1.5, 5.0, uDetailTexel / max(foot, 1e-6)) * (hit ? 1.0 : 0.0);
 #if defined(EARTH)
-  detail *= 1.0 - smoothstep(0.3, 0.7, water);
+  detail *= (1.0 - smoothstep(0.3, 0.7, water)) * (1.0 - cloud);
 #endif
   if (detail > 0.0) {
     vec3 q = pB * uDetailScale;
@@ -300,7 +303,10 @@ void main() {
   float D = a2 / (PI * dd * dd);
   float F = 0.02 + 0.98 * pow(1.0 - max(dot(H, V), 0.0), 5.0);
   float spec = D * F * 0.25 / max(NdotV * max(geoNdotL, 0.0), 0.05) * max(geoNdotL, 0.0);
-  color = ground * lambert * irr + water * spec * irr * 0.6;
+  vec3 surf = ground * lambert * irr + water * spec * irr * 0.6;
+  // clouds: bright, softly lit, fading out across the terminator
+  vec3 cloudCol = vec3(0.92) * irr * max(geoNdotL * 0.9 + 0.1, 0.0) * smoothstep(-0.12, 0.1, geoNdotL);
+  color = mix(surf, cloudCol, cloud);
   // city lights on the night side
   float night = smoothstep(0.08, -0.18, geoNdotL);
   if (night > 0.0 && lights > 0.0) {
@@ -308,7 +314,7 @@ void main() {
     float speck = vnoise3(dir * 9000.0) * 0.6 + vnoise3(dir * 23000.0) * 0.4;
     float lit = pow(lights, 1.8) * (0.25 + 2.2 * smoothstep(0.45, 0.85, speck));
     vec3 cityCol = vec3(1.0, 0.72, 0.42) * lit * 0.11;
-    color += cityCol * night;
+    color += cityCol * night * (1.0 - cloud * 0.85);
   }
 #elif defined(GAS)
   // Minnaert limb darkening on the cloud tops
