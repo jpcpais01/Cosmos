@@ -110,6 +110,11 @@ export interface HudState {
   boost: boolean;
 }
 
+/** Writes text only when it changed: assigning even the same string replaces the text node and invalidates layout. */
+function setText(e: HTMLElement, t: string): void {
+  if (e.textContent !== t) e.textContent = t;
+}
+
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, html?: string): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
@@ -760,30 +765,30 @@ export class Hud {
   update(s: HudState): void {
     this.lastState = s;
     const warping = s.warpState === 'cruise';
-    this.speedEl.textContent = fmtSpeed(warping ? s.warpSpeed : s.speed);
+    setText(this.speedEl, fmtSpeed(warping ? s.warpSpeed : s.speed));
     const rev = !warping && s.throttle < 0;
-    this.limitEl.textContent = warping ? `WARP ${s.warpFactor}c` : `${rev ? 'REVERSE · ' : ''}${s.boost ? 'BOOST · ' : ''}LIMIT ${fmtSpeed(s.limit * (rev ? REVERSE_FRACTION : 1))}`;
-    this.thrFill.style.width = `${(warping ? 1 : Math.abs(s.throttle)) * 100}%`;
+    setText(this.limitEl, warping ? `WARP ${s.warpFactor}c` : `${rev ? 'REVERSE · ' : ''}${s.boost ? 'BOOST · ' : ''}LIMIT ${fmtSpeed(s.limit * (rev ? REVERSE_FRACTION : 1))}`);
+    const thrW = `${(warping ? 1 : Math.abs(s.throttle)) * 100}%`;
+    if (this.thrFill.style.width !== thrW) this.thrFill.style.width = thrW;
     this.thrFill.classList.toggle('warp', warping);
     this.thrFill.classList.toggle('rev', rev);
-    this.locName.textContent = s.nearest.toUpperCase();
-    this.locSub.textContent = `${s.nearest === 'Interplanetary space' ? 'From the Sun' : 'Altitude'} ${fmtDistance(s.altitude)} · ${s.view}`;
+    setText(this.locName, s.nearest.toUpperCase());
+    setText(this.locSub, `${s.nearest === 'Interplanetary space' ? 'From the Sun' : 'Altitude'} ${fmtDistance(s.altitude)} · ${s.view}`);
     const scale = s.timeScale === 0 ? 'PAUSED' : s.timeScale === 1 ? 'REAL TIME' : `×${s.timeScale.toLocaleString('en-US')}`;
-    this.scaleEl.textContent = scale;
+    setText(this.scaleEl, scale);
     // touch: the time controls are tucked away, so say here when time isn't running normally
-    this.dateEl.textContent = TOUCH && s.timeScale !== 1 ? `${fmtDate(s.simMs)} · ${scale}` : fmtDate(s.simMs);
+    setText(this.dateEl, TOUCH && s.timeScale !== 1 ? `${fmtDate(s.simMs)} · ${scale}` : fmtDate(s.simMs));
     for (const [f, b] of this.factorBtns) b.classList.toggle('on', f === s.warpFactor);
-    const fl = `${s.warpFactor}c`;
-    if (this.factorCycle.textContent !== fl) this.factorCycle.textContent = fl;
+    setText(this.factorCycle, `${s.warpFactor}c`);
     if (s.targetName) {
-      this.warpTarget.textContent = s.targetName;
-      this.warpEta.textContent = `${fmtDistance(s.targetDistance)} · ETA ${fmtDuration(s.targetEta)}`;
+      setText(this.warpTarget, s.targetName);
+      setText(this.warpEta, `${fmtDistance(s.targetDistance)} · ETA ${fmtDuration(s.targetEta)}`);
     } else {
-      this.warpTarget.textContent = 'No destination';
-      this.warpEta.textContent = TOUCH ? 'Tap here to choose one on the map' : 'Open the map (M) to choose one';
+      setText(this.warpTarget, 'No destination');
+      setText(this.warpEta, TOUCH ? 'Tap here to choose one on the map' : 'Open the map (M) to choose one');
     }
     const active = s.warpState !== 'idle';
-    this.engageBtn.textContent = active ? (s.warpState === 'cruise' ? 'DROP OUT' : 'ABORT') : 'ENGAGE';
+    setText(this.engageBtn, active ? (s.warpState === 'cruise' ? 'DROP OUT' : 'ABORT') : 'ENGAGE');
     this.engageBtn.classList.toggle('danger', active);
     this.engageBtn.disabled = !TOUCH && !s.targetName && !active;
     this.engageBtn.classList.toggle('idle', !s.targetName && !active);
@@ -792,7 +797,7 @@ export class Hud {
     else if (s.warpState === 'spooling') st = `WARP DRIVE CHARGING ${Math.round(s.warpSpool * 100)}%`;
     else if (s.warpState === 'cruise') st = `WARP ${s.warpFactor}c · ${s.targetName} · ${fmtDuration(s.warpDistance / (s.warpFactor * 299792.458))}`;
     else if (s.warpState === 'exiting') st = 'DROPPING OUT OF WARP';
-    this.status.textContent = st;
+    setText(this.status, st);
     this.status.classList.toggle('show', !!st);
   }
 
@@ -866,11 +871,12 @@ export class Hud {
     this.labels.forEach((d, i) => {
       const it = items[i];
       if (!it) {
-        d.style.display = 'none';
+        if (d.style.display !== 'none') d.style.display = 'none';
         return;
       }
-      d.style.display = '';
-      d.style.transform = `translate(${Math.round(it.x)}px, ${Math.round(it.y)}px)`;
+      if (d.style.display) d.style.display = '';
+      const tr = `translate(${Math.round(it.x)}px, ${Math.round(it.y)}px)`;
+      if (d.style.transform !== tr) d.style.transform = tr;
       const b = d.firstChild as HTMLElement;
       const sp = d.lastChild as HTMLElement;
       if (b.textContent !== it.text) b.textContent = it.text;

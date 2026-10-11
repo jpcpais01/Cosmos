@@ -840,7 +840,7 @@ async function main(): Promise<void> {
     shipView.warpLight.color.setHSL(0.6 + fNorm * 0.22 * Math.sin(t * 0.9 + warpSeed * 30), 0.55 + 0.35 * fNorm, 0.7);
     shipView.warpLight.intensity = (warp.intensity * 8 + warp.spool * 6 + warp.flash * 20) * flick * (cockpit ? 0.8 : 1) * eg;
     prof.cpu('Ship & lighting');
-    mfd.update(dt, simMs);
+    mfd.update(dt, simMs, cockpit);
     prof.cpu('Cockpit screens');
 
     // sun glare: fades out as the Sun leaves the frame (its glow still spills in from just outside) and

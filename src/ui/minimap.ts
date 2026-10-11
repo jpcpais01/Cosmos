@@ -60,6 +60,9 @@ export class Minimap {
   private w = 0;
   private h = 0;
   private dpr = 1;
+  /** CSS size of the canvas, kept by a ResizeObserver so a redraw never forces a layout */
+  private cssW = 0;
+  private cssH = 0;
   private acc = 1;
   private colors = new Map<string, string>();
   private blips: Blip[] = [];
@@ -69,6 +72,10 @@ export class Minimap {
     this.root.className = 'minimap panel';
     this.root.title = 'Scanner: nearby bodies around your ship, log distance (click for the map, N to hide)';
     this.root.append(this.canvas);
+    new ResizeObserver(([e]) => {
+      this.cssW = Math.round(e.contentRect.width);
+      this.cssH = Math.round(e.contentRect.height);
+    }).observe(this.canvas);
     this.root.addEventListener('click', (e) => {
       e.stopPropagation();
       this.onClick?.();
@@ -76,8 +83,8 @@ export class Minimap {
   }
 
   private fit(): boolean {
-    const w = this.canvas.clientWidth;
-    const h = this.canvas.clientHeight;
+    const w = this.cssW;
+    const h = this.cssH;
     if (!w || !h) return false;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     if (w !== this.w || h !== this.h || dpr !== this.dpr) {
