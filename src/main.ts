@@ -801,12 +801,15 @@ async function main(): Promise<void> {
     renderer.setClearColor(BLACK, 1);
     renderer.render(shipView.scene, rig.camera);
 
-    // sun flare
+    // sun glare: fades out as the Sun leaves the frame (its glow still spills in from just outside) and
+    // with the analytic eclipse by planets and moons, rather than popping on and off
     tmp.subVectors(sun.pos, camAbs);
     const sunDist = tmp.length();
     project(tmp, tmp);
-    const inFront = tmp.z < 1 && tmp.z > -1 && Math.abs(tmp.x) < 0.98 && Math.abs(tmp.y) < 0.98;
+    const sunEdge = Math.max(Math.abs(tmp.x), Math.abs(tmp.y));
+    const sunOn = tmp.z < 1 && tmp.z > -1 ? (1 - MathUtils.smoothstep(sunEdge, 1.0, 1.3)) * vis : 0;
     sunUv.set(tmp.x * 0.5 + 0.5, tmp.y * 0.5 + 0.5);
+    const sunRadius = Math.asin(Math.min(1, sun.def.radius / sunDist)) / (universe.pixelAngle * bufH);
     // warp apex
     tmp.copy(fwd).multiplyScalar(1e6);
     project(tmp, tmp);
@@ -820,8 +823,9 @@ async function main(): Promise<void> {
       time: t,
       dt,
       sunUv,
-      sunOn: inFront ? 1 : 0,
+      sunOn,
       sunPower: MathUtils.clamp(Math.pow(AU_KM / sunDist, 0.8), 0.12, 1.6),
+      sunRadius,
       apex,
       warp: warpVis,
       warpSpeed: 1.2 + fNorm * 2.5,

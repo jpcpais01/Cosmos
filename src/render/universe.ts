@@ -5,7 +5,7 @@ import {
 import type { BodyState, Ephemeris } from '../sim/ephemeris';
 import { AU_KM } from '../sim/constants';
 import { createPlanetMaterial, MAX_OCCLUDERS } from './planetMaterial';
-import { createBodyPointsMaterial, createRingMaterial, createSunGlowMaterial, createSunMaterial } from './bodyMaterials';
+import { SUN_RADIANCE, createBodyPointsMaterial, createRingMaterial, createSunGlowMaterial, createSunMaterial } from './bodyMaterials';
 import { solidTexture, TextureStreamer, type Kind } from './textures';
 
 export const SUN_COLOR = new Vector3(1.0, 0.975, 0.94);
@@ -323,7 +323,12 @@ export class Universe {
       this.pointPos[pi] = _rel.x;
       this.pointPos[pi + 1] = _rel.y;
       this.pointPos[pi + 2] = _rel.z;
-      const fade = Math.min(1, Math.max(0, (2.2 - v.pixelRadius) / 1.6));
+      const isStar = def.kind === 'star';
+      // the Sun's disc stays sharp down to about a pixel; below that a soft point carries its light
+      const fade = isStar
+        ? Math.min(1, Math.max(0, (1.2 - v.pixelRadius) / 0.8))
+        : Math.min(1, Math.max(0, (2.2 - v.pixelRadius) / 1.6));
+      if (isStar) u.uDiscGain.value = 1 - fade;
       let intensity = 0;
       {
         let mag: number;
@@ -339,7 +344,12 @@ export class Universe {
           mag = def.H + 5 * Math.log10(r * delta) - 2.5 * Math.log10(q);
         }
         v.apparentMag = mag;
-        if (fade > 0 && dist > def.radius * 1.5) intensity = magToIntensity(mag) * fade;
+        if (isStar) {
+          // the same light as the disc it replaces (pi r^2 pixels at the disc radiance) rather than its
+          // magnitude, which overflowed the half-float buffer and blew the bloom up into a white-out
+          const gauss = (Math.PI / 1.1) * dprPx * dprPx; // integral of the point's falloff, in pixels
+          if (fade > 0) intensity = (SUN_RADIANCE * Math.PI * v.pixelRadius * v.pixelRadius * fade) / (gauss * this.pointBrightness);
+        } else if (fade > 0 && dist > def.radius * 1.5) intensity = magToIntensity(mag) * fade;
       }
       this.pointInt[i] = intensity;
       const c = def.color;

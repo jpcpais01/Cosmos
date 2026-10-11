@@ -15,6 +15,9 @@ void main() {
 }
 `;
 
+/** Radiance of the Sun's disc in the HDR buffer. */
+export const SUN_RADIANCE = 2000;
+
 /** The Sun: exact sphere, limb darkening, animated granulation. */
 export function createSunMaterial(map: Texture): ShaderMaterial {
   return new ShaderMaterial({
@@ -31,6 +34,7 @@ uniform vec3 uCamFwd;
 uniform float uPixelAngle;
 uniform float uTime;
 uniform float uRadiance;
+uniform float uDiscGain;
 uniform sampler2D uMap;
 void main() {
   vec3 rdW = normalize(vRel);
@@ -48,13 +52,19 @@ void main() {
   vec2 uv = dirToEquirect(n);
   vec3 tex = sampleEquirect(uMap, uv).rgb;
   float lumT = dot(tex, vec3(0.3, 0.55, 0.15));
-  // fine animated granulation on top of the photographic map
-  float g = fbm3(n * 180.0 + vec3(0.0, 0.0, uTime * 0.02));
-  float g2 = fbm3(n * 700.0 - vec3(uTime * 0.05));
-  float gran = 0.82 + 0.28 * g + 0.12 * g2;
+  // fine animated granulation on top of the photographic map, faded out once its cells get smaller
+  // than a pixel (sampled any finer it only sparkles as the view moves)
+  float fp = pix / uRadius;
+  float w1 = 1.0 - smoothstep(1.0 / 180.0, 4.0 / 180.0, fp);
+  float w2 = 1.0 - smoothstep(1.0 / 700.0, 4.0 / 700.0, fp);
+  float gran = 1.0;
+  if (w1 > 0.0) gran += w1 * (0.28 * fbm3(n * 180.0 + vec3(0.0, 0.0, uTime * 0.02)) - 0.14);
+  if (w2 > 0.0) gran += w2 * (0.12 * fbm3(n * 700.0 - vec3(uTime * 0.05)) - 0.06);
   vec3 limb = pow(vec3(max(mu, 1e-3)), vec3(0.38, 0.5, 0.68));
   vec3 base = vec3(1.0, 0.93, 0.82);
   vec3 c = base * limb * gran * mix(0.75, 1.25, lumT) * uRadiance;
+  // uDiscGain hands a disc only a pixel or two wide over to the point of light
+  cov *= uDiscGain;
   gl_FragColor = vec4(c * cov, cov);
   float w = max(th * dot(rdW, uCamFwd), 1e-6);
   gl_FragDepth = logDepthValue(w);
@@ -73,7 +83,8 @@ void main() {
       uCamFwd: { value: new Vector3() },
       uPixelAngle: { value: 0.001 },
       uTime: { value: 0 },
-      uRadiance: { value: 2000 },
+      uRadiance: { value: SUN_RADIANCE },
+      uDiscGain: { value: 1 },
       uMap: { value: map },
     },
   });
