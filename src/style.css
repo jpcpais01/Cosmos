@@ -2206,3 +2206,136 @@ body.touch-ui .perf {
   width: 220px;
   font-size: 9.5px;
 }
+
+/* ---------------------------------------------------------------- warp gate console */
+.gate-panel {
+  position: absolute;
+  right: calc(18px + var(--safe-r));
+  top: 30%;
+  width: 290px;
+  padding: 14px 16px 14px;
+  opacity: 0;
+  transform: translateX(16px);
+  pointer-events: none;
+  transition: opacity 0.4s, transform 0.4s;
+  border-color: rgba(170, 120, 255, 0.35);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35), 0 0 30px rgba(140, 90, 255, 0.12) inset;
+}
+.gate-panel.show {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+.gate-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.gate-head b {
+  display: block;
+  font-size: 14px;
+  letter-spacing: 0.28em;
+  color: #d9c8ff;
+}
+.gate-head small {
+  display: block;
+  font-size: 13px;
+  color: var(--muted);
+  letter-spacing: 0.08em;
+}
+.gate-ring {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border-radius: 50%;
+  border: 3px dashed rgba(120, 220, 255, 0.85);
+  box-shadow: 0 0 12px rgba(120, 220, 255, 0.5), 0 0 10px rgba(170, 110, 255, 0.6) inset;
+  animation: gate-spin 9s linear infinite;
+}
+.gate-panel.jumping .gate-ring {
+  animation-duration: 0.8s;
+}
+@keyframes gate-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.gate-hint {
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.gate-dest {
+  position: relative;
+  display: block;
+  width: 100%;
+  text-align: left;
+  font-family: var(--font);
+  color: var(--text);
+  background: linear-gradient(120deg, rgba(110, 60, 220, 0.28), rgba(30, 120, 200, 0.18));
+  border: 1px solid rgba(170, 130, 255, 0.45);
+  border-radius: 8px;
+  padding: 9px 12px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.gate-dest:hover {
+  background: linear-gradient(120deg, rgba(130, 80, 240, 0.42), rgba(40, 140, 220, 0.3));
+  border-color: rgba(200, 170, 255, 0.8);
+}
+.gate-dest b {
+  display: block;
+  font-size: 18px;
+  letter-spacing: 0.06em;
+}
+.gate-dest span {
+  display: block;
+  font-size: 13px;
+  color: var(--muted);
+}
+.gate-dest i {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-style: normal;
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.16em;
+  color: #e5d8ff;
+}
+.gate-live {
+  display: none;
+}
+.gate-panel.jumping .gate-dests {
+  display: none;
+}
+.gate-panel.jumping .gate-live {
+  display: block;
+}
+.gate-status {
+  font-size: 15px;
+  letter-spacing: 0.1em;
+  margin-bottom: 8px;
+}
+.gate-track {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+.gate-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #7a5cff, #5fd4ff);
+  transform-origin: left;
+  transform: scaleX(0);
+}
+body.touch-ui .gate-panel {
+  top: calc(64px + var(--safe-t));
+  width: 250px;
+  padding: 10px 12px;
+}

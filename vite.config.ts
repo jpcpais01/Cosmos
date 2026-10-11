@@ -69,7 +69,7 @@ export default defineConfig({
             },
           },
           {
-            // other star systems' skies, fetched the first time you go there
+            // other star systems' skies, fetched the first time you go there (rename a file when it changes)
             urlPattern: ({ url }) => url.pathname.startsWith('/data/') && url.pathname !== '/data/stars.bin',
             handler: 'CacheFirst',
             options: { cacheName: 'cosmos-data', expiration: { maxEntries: 20 }, cacheableResponse: { statuses: [0, 200] } },
