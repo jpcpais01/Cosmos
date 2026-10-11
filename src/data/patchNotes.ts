@@ -11,6 +11,16 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     date: '2026-10-11',
+    title: 'Clear Earth, faster and sharper close to planets',
+    notes: [
+      'Earth no longer has a painted cloud layer over it, so the full 8K surface shows. The thin white lines across the land (rivers catching the sun\'s glint) are gone too; only open water glints.',
+      'Atmospheres cost much less to draw: the sunlight through the air is looked up from a small table instead of being worked out again at every step of every pixel.',
+      'Sky pixels inside an atmosphere no longer read any surface maps, and inside the sharp close-up patch the blurry whole-planet map is no longer read underneath it.',
+      'Up close, the surface map is magnified with smooth filtering instead of blocky bilinear, and fine relief (rolling ground and small craters) fades in below the finest map detail on the Moon, Mars, Mercury, rocky moons and Earth\'s land. It shows best with a low Sun.',
+    ],
+  },
+  {
+    date: '2026-10-11',
     title: 'A sharper sky',
     notes: [
       'A new Milky Way built from ESA Gaia\'s sky map, with crisp dust lanes, no blotches and no seam.',

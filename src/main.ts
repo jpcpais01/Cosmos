@@ -4,7 +4,7 @@ import {
   LinearMipmapLinearFilter, NoToneMapping, type Texture,
 } from 'three';
 import { Ephemeris } from './sim/ephemeris';
-import { AU_KM, C_KMS, DAY_MS, WARP_FACTORS, type WarpFactor } from './sim/constants';
+import { AU_KM, C_KMS, WARP_FACTORS, type WarpFactor } from './sim/constants';
 import { Universe, SUN_COLOR } from './render/universe';
 import { Sky, worldToGalactic } from './render/sky';
 import { PostPipeline } from './render/post';
@@ -756,7 +756,7 @@ async function main(): Promise<void> {
     }
     const skyBright = (1 / distExposure) / (1 + Math.min(litCover, 1) * 22);
     universe.pointBrightness = 1 / distExposure;
-    universe.update(camAbs, camQ, t, (simMs - Date.UTC(2000, 0, 1, 12)) / DAY_MS, pr);
+    universe.update(camAbs, camQ, t, pr);
     prof.cpu('Planets & map streaming');
 
     // warp / sky

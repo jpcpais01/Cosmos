@@ -1,5 +1,6 @@
 import { ALBEDO_SCALE } from './albedo';
 import { BackSide, CustomBlending, OneFactor, OneMinusSrcAlphaFactor, ShaderMaterial, Texture, Matrix3, Vector2, Vector3, Vector4 } from 'three';
+import { TRANS_H, TRANS_W, transmittanceTexture } from './atmoLut';
 import { EQUIRECT, LOGDEPTH_PARS, LOGDEPTH_VERTEX, MATH } from './glsl';
 import type { BodyDef } from '../sim/bodies';
 
@@ -59,7 +60,14 @@ uniform sampler2D uAux;
 uniform sampler2D uAuxW;
 uniform vec4 uAuxR;
 uniform float uAuxOn;
-uniform float uCloudShift;
+#endif
+
+#ifdef DETAIL
+uniform highp sampler3D uDetail;
+uniform float uDetailScale;  // detail volume tiles per km
+uniform float uDetailTexel;  // km per texel of the finest map
+uniform float uDetailBump;
+uniform float uDetailAlbedo;
 #endif
 
 #ifdef RINGSHADOW
@@ -121,21 +129,15 @@ float ringShadow(vec3 p, vec3 L) {
 #endif
 
 #ifdef ATMO
-float chapman(float X, float h, float mu) {
-  float c = sqrt(X + h);
-  if (mu >= 0.0) return c / (c * mu + 1.0) * exp(-h);
-  float x0 = sqrt(1.0 - mu * mu) * (X + h);
-  float c0 = sqrt(x0);
-  return 2.0 * c0 * exp(X - x0) - c / (1.0 - c * mu) * exp(-h);
-}
-// Column densities (Rayleigh, Mie) toward the Sun from radius r with cos(zenith) mu.
-vec2 sunColumn(float R, float r, float mu) {
-  float horizon = -sqrt(max(1.0 - (R * R) / (r * r), 0.0));
-  if (mu < horizon - 0.02) return vec2(1e9);
-  vec2 c = vec2(uHR * chapman(R / uHR, (r - R) / uHR, mu), uHM * chapman(R / uHM, (r - R) / uHM, mu));
-  // soft planet shadow at the terminator
-  float soft = smoothstep(horizon - 0.02, horizon + 0.01, mu);
-  return c / max(soft, 1e-4);
+uniform sampler2D uTrans;
+// Transmittance of sunlight to radius r with cos(sun zenith) mu, from the precomputed table
+// (see atmoLut.ts; includes the soft planet shadow at the terminator).
+vec3 sunTrans(float R, float r, float mu) {
+  float x = sqrt(clamp((r - R) / uAtmoH, 0.0, 1.0));
+  float lo = -sqrt(max(1.0 - (R * R) / (r * r), 0.0)) - 0.02;
+  float y = sqrt(clamp((mu - lo) / (1.0 - lo), 0.0, 1.0));
+  vec2 n = vec2(${TRANS_W}.0, ${TRANS_H}.0);
+  return textureLod(uTrans, (vec2(x, y) * (n - 1.0) + 0.5) / n, 0.0).rgb;
 }
 float phaseR(float mu) { return 3.0 / (16.0 * PI) * (1.0 + mu * mu); }
 float phaseM(float mu, float g) {
@@ -165,8 +167,7 @@ vec3 scatter(vec3 ro, vec3 rd, float t0, float t1, float R, vec3 L, bool hitGrou
     float h = max(r - R, 0.0);
     float dR = exp(-h / uHR) * ds;
     float dM = exp(-h / uHM) * ds;
-    vec2 sc = sunColumn(R, r, dot(p, L) / r);
-    vec3 att = extinction(odR + 0.5 * dR + sc.x, odM + 0.5 * dM + sc.y);
+    vec3 att = extinction(odR + 0.5 * dR, odM + 0.5 * dM) * sunTrans(R, r, dot(p, L) / r);
     sumR += att * dR;
     sumM += att * dM;
     odR += dR;
@@ -216,15 +217,61 @@ void main() {
 
   if (!hit && !hitA && coverage <= 0.0) discard;
 
-  vec4 albedoS = sampleLayered(uMap, uMapW, uMapR, uMapOn, uv);
+  vec3 color = vec3(0.0);
+  float tDepth = tHit / ls;
+  vec2 gdx, gdy;
+  equirectGrad(uv, gdx, gdy);
+
+  // Surface shading only where the ground (or its anti-aliased limb) shows; sky pixels inside
+  // the atmosphere skip every map lookup.
+  if (hit || coverage > 0.0) {
+  vec4 albedoS = sampleLayered(uMap, uMapW, uMapR, uMapOn, uv, gdx, gdy);
   vec3 albedo = albedoS.rgb * uAlbedoScale;
   vec3 n = nB;
 
 #ifdef NORMALMAP
   vec3 east = normalize(vec3(-dir.y, dir.x, 0.0) + vec3(1e-6, 0.0, 0.0));
   vec3 north = cross(dir, east);
-  vec3 tn = sampleLayered(uNormal, uNormalW, uNormalR, uNormalOn, uv).xyz * 2.0 - 1.0;
+  vec3 tn = sampleLayered(uNormal, uNormalW, uNormalR, uNormalOn, uv, gdx, gdy).xyz * 2.0 - 1.0;
   n = normalize(east * tn.x * uNormalStrength + north * tn.y * uNormalStrength + nB * max(tn.z, 0.2));
+#endif
+
+#if defined(EARTH)
+  vec4 aux = sampleLayered(uAux, uAuxW, uAuxR, uAuxOn, uv, gdx, gdy);
+  // The ocean mask also traces rivers and lakes a texel or two wide, which glinted like white
+  // threads across the land. Only water that stays water in a much blurrier read counts.
+  float wide = textureGrad(uAux, uv, gdx * 12.0, gdy * 12.0).g;
+  float water = aux.g * smoothstep(0.35, 0.8, wide);
+  float lights = aux.b;
+#endif
+
+  float detailShade = 1.0;
+#ifdef DETAIL
+  // Close up, the finest map texel spans many pixels: add relief finer than the map from a small
+  // tiling volume of noise and craters, fading in as the map gets magnified.
+  float foot = tDepth * uPixelAngle;
+  float detail = smoothstep(1.5, 5.0, uDetailTexel / max(foot, 1e-6)) * (hit ? 1.0 : 0.0);
+#if defined(EARTH)
+  detail *= 1.0 - smoothstep(0.3, 0.7, water);
+#endif
+  if (detail > 0.0) {
+    vec3 q = pB * uDetailScale;
+    // explicit gradients: screen derivatives of positions this large are too noisy up close;
+    // the grazing-angle stretch is only partly applied so the relief stays crisp toward the horizon
+    float g = foot * uDetailScale;
+    vec3 gx = vec3(g, 0.0, 0.0), gy = vec3(0.0, g / sqrt(max(abs(dot(nB, rdB)), 0.1)), 0.0);
+    vec4 d1 = textureGrad(uDetail, q, gx, gy);
+    vec4 d2 = textureGrad(uDetail, q * 4.37 + 0.31, gx * 4.37, gy * 4.37);
+    vec3 dg = (d1.rgb - 0.5) * 2.0 + (d2.rgb - 0.5) * 1.1;
+    dg -= nB * dot(dg, nB);
+    vec3 nD = normalize(n - dg * (uDetailBump * detail));
+    // Light the relief as a bounded brighten/darken of the map's own shading, so small slopes
+    // facing away from a low Sun shade the ground instead of punching black holes in it.
+    float base = dot(n, L);
+    detailShade = exp(0.6 * tanh((dot(nD, L) - base) / (max(base, 0.0) + 0.1)));
+    detailShade = mix(1.0, detailShade, smoothstep(0.0, 0.08, base));
+    albedo *= 1.0 + ((d1.a - 0.5) + (d2.a - 0.5) * 0.6) * uDetailAlbedo * detail;
+  }
 #endif
 
   vec3 V = -rdB;
@@ -236,30 +283,16 @@ void main() {
   shadow *= ringShadow(pB, L);
 #endif
 
-  vec3 color = vec3(0.0);
   vec3 irr = uSunIrr * shadow;
-  vec3 surfTrans = vec3(1.0);
 #ifdef ATMO
   // Sunlight reaching the ground through the atmosphere
-  vec2 gsc = sunColumn(R, R + 0.05, geoNdotL);
-  surfTrans = extinction(gsc.x, gsc.y);
-  irr *= surfTrans;
+  irr *= sunTrans(R, R + 0.05, geoNdotL);
 #endif
 
 #if defined(EARTH)
-  vec4 aux = sampleLayered(uAux, uAuxW, uAuxR, uAuxOn, uv);
-  vec2 cuv = vec2(uv.x + uCloudShift, uv.y);
-  float cloud = sampleLayered(uAux, uAuxW, uAuxR, uAuxOn, cuv).r;
-  cloud = smoothstep(0.08, 0.95, cloud);
-  float water = aux.g;
-  float lights = aux.b;
-  // cloud shadows: look up the cloud layer toward the Sun
-  vec3 toSunTangent = L - nB * dot(L, nB);
-  vec3 shadowDir = normalize(dir + toSunTangent * (6.0 / R) / max(geoNdotL, 0.15));
-  float cloudShadow = smoothstep(0.08, 0.95, sampleLayered(uAux, uAuxW, uAuxR, uAuxOn, vec2(dirToEquirect(shadowDir).x + uCloudShift, dirToEquirect(shadowDir).y)).r);
   float lambert = max(NdotL, 0.0);
   vec3 ground = albedo * mix(1.0, 0.85, water);
-  // ocean: dark, with sun glint (GGX) and a little sky reflection
+  // ocean: dark, with sun glint (GGX)
   vec3 H = normalize(L + V);
   float NdotH = max(dot(nB, H), 0.0);
   float a2 = 0.09 * 0.09;
@@ -267,19 +300,16 @@ void main() {
   float D = a2 / (PI * dd * dd);
   float F = 0.02 + 0.98 * pow(1.0 - max(dot(H, V), 0.0), 5.0);
   float spec = D * F * 0.25 / max(NdotV * max(geoNdotL, 0.0), 0.05) * max(geoNdotL, 0.0);
-  vec3 surf = ground * lambert * irr * (1.0 - 0.75 * cloudShadow);
-  surf += water * spec * irr * (1.0 - cloud) * (1.0 - cloudShadow * 0.8) * 0.6;
-  // clouds: bright, softly lit, with a forward-scattering silver lining near the terminator
-  float cl = max(geoNdotL * 0.9 + 0.1, 0.0);
-  vec3 cloudCol = vec3(0.92) * irr * cl * smoothstep(-0.12, 0.1, geoNdotL);
-  color = mix(surf, cloudCol, cloud);
+  color = ground * lambert * irr + water * spec * irr * 0.6;
   // city lights on the night side
   float night = smoothstep(0.08, -0.18, geoNdotL);
-  // break the map's soft blobs into specks of light: fine value noise anchored to the surface
-  float speck = vnoise3(dir * 9000.0) * 0.6 + vnoise3(dir * 23000.0) * 0.4;
-  float lit = pow(lights, 1.8) * (0.25 + 2.2 * smoothstep(0.45, 0.85, speck));
-  vec3 cityCol = vec3(1.0, 0.72, 0.42) * lit * 0.11;
-  color += cityCol * night * (1.0 - cloud * 0.85);
+  if (night > 0.0 && lights > 0.0) {
+    // break the map's soft blobs into specks of light: fine value noise anchored to the surface
+    float speck = vnoise3(dir * 9000.0) * 0.6 + vnoise3(dir * 23000.0) * 0.4;
+    float lit = pow(lights, 1.8) * (0.25 + 2.2 * smoothstep(0.45, 0.85, speck));
+    vec3 cityCol = vec3(1.0, 0.72, 0.42) * lit * 0.11;
+    color += cityCol * night;
+  }
 #elif defined(GAS)
   // Minnaert limb darkening on the cloud tops
   float k = 0.82;
@@ -297,13 +327,15 @@ void main() {
   color = albedo * irr * mix(lam, lsl, 0.55);
 #endif
 
+  color *= detailShade;
+
 #ifdef SHINE
   // reflected light from the parent planet (e.g. Earthshine on the Moon)
   color += albedo * uShineCol * max(dot(n, normalize(uShineDir)), 0.0);
 #endif
+  }
 
   float alpha = coverage;
-  float tDepth = tHit / ls;
 
 #ifdef ATMO
   if (hitA) {
@@ -338,7 +370,7 @@ void main() {
 }
 `;
 
-export function createPlanetMaterial(def: BodyDef, map: Texture, hasNormal: boolean): ShaderMaterial {
+export function createPlanetMaterial(def: BodyDef, map: Texture, hasNormal: boolean, detail: Texture | null = null): ShaderMaterial {
   const defines: Record<string, string> = {};
   if (def.atmosphere) defines.ATMO = '';
   if (def.shading === 'earth') defines.EARTH = '';
@@ -347,6 +379,8 @@ export function createPlanetMaterial(def: BodyDef, map: Texture, hasNormal: bool
   if (hasNormal) defines.NORMALMAP = '';
   if (def.rings) defines.RINGSHADOW = '';
   if (def.kind === 'moon') defines.SHINE = '';
+  // solid ground you can fly low over gets synthetic close-up relief
+  if (detail && (def.shading === 'rocky' || def.shading === 'earth')) defines.DETAIL = '';
   const a = def.atmosphere;
   const axes = def.triaxial
     ? new Vector3(def.triaxial[0], def.triaxial[1], def.triaxial[2])
@@ -394,10 +428,15 @@ export function createPlanetMaterial(def: BodyDef, map: Texture, hasNormal: bool
       uAuxW: { value: null },
       uAuxR: { value: new Vector4(0, 0, 1, 1) },
       uAuxOn: { value: 0 },
-      uCloudShift: { value: 0 },
       uRingTex: { value: null },
+      uDetail: { value: detail },
+      uDetailScale: { value: 1 },
+      uDetailTexel: { value: 1 },
+      uDetailBump: { value: def.shading === 'earth' ? 0.14 : 0.2 },
+      uDetailAlbedo: { value: def.shading === 'earth' ? 0.18 : 0.22 },
       uRingRange: { value: def.rings ? new Vector2(def.rings.inner, def.rings.outer) : new Vector2(0, 1) },
       uAtmoH: { value: a?.height ?? 0 },
+      uTrans: { value: a ? transmittanceTexture(axes.x, a) : null },
       uBetaR: { value: new Vector3(...(a?.rayleigh ?? [0, 0, 0])) },
       uBetaM: { value: new Vector3(...(a?.mie ?? [0, 0, 0])) },
       uAbsorb: { value: new Vector3(...(a?.absorb ?? [0, 0, 0])) },

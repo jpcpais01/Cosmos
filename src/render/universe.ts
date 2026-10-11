@@ -6,6 +6,7 @@ import type { BodyState, Ephemeris } from '../sim/ephemeris';
 import { AU_KM } from '../sim/constants';
 import { createPlanetMaterial, MAX_OCCLUDERS } from './planetMaterial';
 import { SUN_RADIANCE, createBodyPointsMaterial, createRingMaterial, createSunGlowMaterial, createSunMaterial } from './bodyMaterials';
+import { createDetailTexture } from './detail';
 import { solidTexture, TextureStreamer, type Kind } from './textures';
 
 export const SUN_COLOR = new Vector3(1.0, 0.975, 0.94);
@@ -58,6 +59,7 @@ export class Universe {
   private black = solidTexture(40, 40, 40);
   private flatNormal = solidTexture(128, 128, 255);
   private auxDefault = solidTexture(0, 0, 0);
+  private detail = createDetailTexture();
   /** Pixels per radian vertically (set from viewport). */
   pixelAngle = 0.001;
   logDepthF = 1;
@@ -75,7 +77,7 @@ export class Universe {
       const hasNormal = this.textures.has(def.id, 'normal');
       const hasAux = this.textures.has(def.id, 'aux');
       const isSun = def.kind === 'star';
-      const mat = isSun ? createSunMaterial(this.black) : createPlanetMaterial(def, this.black, hasNormal);
+      const mat = isSun ? createSunMaterial(this.black) : createPlanetMaterial(def, this.black, hasNormal, this.detail);
       if (hasNormal) mat.uniforms.uNormal.value = this.flatNormal;
       if (def.shading === 'earth') mat.uniforms.uAux.value = this.auxDefault;
       const mesh = new Mesh(proxy, mat);
@@ -209,7 +211,7 @@ export class Universe {
    * @param camAbs camera heliocentric position (km, float64)
    * @param camQuat camera orientation (world)
    */
-  update(camAbs: Vector3, camQuat: Quaternion, timeSec: number, simDays: number, dprPx: number): void {
+  update(camAbs: Vector3, camQuat: Quaternion, timeSec: number, dprPx: number): void {
     const now = performance.now();
     this.camera.quaternion.copy(camQuat);
     this.camera.updateMatrixWorld(true);
@@ -268,7 +270,6 @@ export class Universe {
         u.uSunAng.value = sun.def.radius / dSun;
         if (visible) this.updateOccluders(v, _tmp, _w2b);
         if (def.kind === 'moon' && s.parent) this.updateShine(v, _w2b);
-        if (def.shading === 'earth') u.uCloudShift.value = (simDays * 0.004) % 1;
         if (v.ring && v.ringMat) {
           const r = v.ringMat.uniforms;
           _m4.setFromMatrix3(s.rot);
@@ -301,6 +302,13 @@ export class Universe {
         }
         // high-resolution tiles only around the part of the surface in view
         if (def.kind !== 'star') {
+          if (u.uDetailTexel) {
+            // synthetic close-up relief starts below the finest texel this body has at this quality
+            const finest = Math.max(...this.textures.tileLevels(id, 'map'), ...this.textures.sizes(id, 'map'), 1024);
+            const texel = (2 * Math.PI * def.radius) / finest;
+            u.uDetailTexel.value = texel;
+            u.uDetailScale.value = 1 / (texel * 8);
+          }
           this.focusPoint(def.radius, _focus);
           const lat = Math.asin(Math.max(-1, Math.min(1, _focus.z)));
           const fu = Math.atan2(_focus.y, _focus.x) / (2 * Math.PI) + 0.5;
