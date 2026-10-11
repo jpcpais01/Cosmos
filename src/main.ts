@@ -469,6 +469,8 @@ async function main(): Promise<void> {
   let fpsAvg = 1 / 60;
   let fpsTime = 0, fpsFrames = 0;
   let engThr = 0;
+  let warpSeed = Math.random();
+  let prevWarpState = 'idle';
 
   const project = (rel: Vector3, out: Vector3) => out.copy(rel).applyMatrix4(universe.camera.matrixWorldInverse).applyMatrix4(universe.camera.projectionMatrix);
 
@@ -655,7 +657,12 @@ async function main(): Promise<void> {
     shipView.cabin.intensity = (cockpit ? 0.35 : 0.15) * eg * dbg.cabin;
     if (parts.canopy) parts.canopy.visible = dbg.canopy;
     shipView.screenLight.intensity = 0.3 * eg;
-    shipView.warpLight.intensity = (warp.intensity * 8 + warp.spool * 6 + warp.flash * 20) * (cockpit ? 0.8 : 1) * eg;
+    // warp light: calm and blue at 1c, flickering and drifting through colours at 100c
+    if (warp.state !== 'idle' && prevWarpState === 'idle') warpSeed = Math.random();
+    prevWarpState = warp.state;
+    const flick = 1 + fNorm * (0.5 * Math.sin(t * 7.3 + warpSeed * 20) * Math.sin(t * 3.1 + warpSeed * 9) + 2.5 * Math.max(0, Math.sin(t * 17 + warpSeed * 40)) ** 12);
+    shipView.warpLight.color.setHSL(0.6 + fNorm * 0.22 * Math.sin(t * 0.9 + warpSeed * 30), 0.55 + 0.35 * fNorm, 0.7);
+    shipView.warpLight.intensity = (warp.intensity * 8 + warp.spool * 6 + warp.flash * 20) * flick * (cockpit ? 0.8 : 1) * eg;
     mfd.update(dt, simMs);
 
     // render
@@ -702,9 +709,11 @@ async function main(): Promise<void> {
       warpSpeed: 1.2 + fNorm * 2.5,
       flash: warp.flash,
       bubble: Math.max(warp.spool * 0.55, warp.intensity * (0.6 + 0.4 * fNorm)),
-      shake: warp.shake,
+      shake: Math.max(warp.shake, warp.intensity * fNorm * 0.18),
       spool: warp.spool,
       rays: Math.max(warp.spool * 0.7, warpVis),
+      chaos: fNorm,
+      seed: warpSeed,
     });
 
     // HUD

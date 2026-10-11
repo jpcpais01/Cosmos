@@ -90,6 +90,11 @@ uniform float uBubble;    // lens distortion of the warp bubble
 uniform float uShake;
 uniform float uSpool;     // warp drive charging 0..1
 uniform float uRays;      // god-ray strength 0..1
+uniform float uChaos;     // 0 at 1c .. 1 at 100c: how extreme and erratic the warp gets
+uniform float uSeed;      // new random value for every jump
+
+// cosine palette for the colour drift at high warp
+vec3 warpHue(float h) { return 0.55 + 0.45 * cos(6.2832 * (h + vec3(0.0, 0.33, 0.67))); }
 
 vec3 agx(vec3 c) {
   const mat3 m = mat3(0.842479062253094, 0.0423282422610123, 0.0423756549057051,
@@ -133,13 +138,21 @@ void main() {
   vec3 polar = vec3(cos(ang), sin(ang), 0.0);
   float veins = 0.5;
   float agitation = max(uBubble, uSpool * 0.8);
+  // random surges that get stronger and more frequent with the warp factor
+  float surge = smoothstep(0.55, 1.0, vnoise3(vec3(uTime * (0.5 + 2.5 * uChaos), uSeed * 37.0, 1.7)));
+  float wild = uChaos * (0.6 + 1.4 * surge);
   if (agitation > 0.001) {
     // space itself ripples: noisy waves running out of the apex, sheared sideways by a second noise field
     float flow = uTime * uWarpSpeed;
-    float n1 = fbm3(polar * 1.7 + vec3(0.0, 0.0, lr * 1.3 - flow * 0.6));
-    veins = fbm3(polar * 4.0 + vec3(5.2, 1.3, lr * 2.4 - flow * 0.8));
-    float ripple = sin(lr * 14.0 - uTime * (6.0 + uWarpSpeed * 4.0) + n1 * 7.0);
+    vec3 so = vec3(uSeed * 61.0, uSeed * 23.0, 0.0);
+    float n1 = fbm3(polar * (1.7 + uChaos * 1.5) + so + vec3(0.0, 0.0, lr * 1.3 - flow * 0.6));
+    veins = fbm3(polar * (4.0 + uChaos * 3.0) + so.yxz + vec3(5.2, 1.3, lr * 2.4 - flow * 0.8));
+    float ripple = sin(lr * (14.0 + 6.0 * uChaos) - uTime * (6.0 + uWarpSpeed * 4.0) + n1 * (7.0 + 4.0 * uChaos));
     vec2 disp = radial * (ripple * 0.009 + (n1 - 0.5) * 0.035) + tang * (veins - 0.5) * 0.04;
+    // at high factors the tunnel also writhes: a lobed twist with a per-jump lobe count
+    float lobes = 3.0 + floor(uSeed * 5.0);
+    disp += tang * sin(ang * lobes + lr * 6.0 - uTime * (2.0 + 4.0 * uChaos)) * 0.03 * wild;
+    disp *= 0.6 + 1.6 * uChaos + wild;
     // while charging, space is wound up around the apex
     float tw = uSpool * (1.0 - uBubble) * 0.6 * exp(-r * 2.2) * sin(uTime * 2.0 + r * 9.0);
     disp += tang * tw * r;
@@ -153,7 +166,7 @@ void main() {
   lens = mix(dv, lens, space);
   vec2 suv = uApex + lens / aspect;
   // chromatic aberration grows with warp
-  float ca = uBubble * 0.006 * r + 0.0006 * dot(uv - 0.5, uv - 0.5);
+  float ca = uBubble * 0.006 * r * (1.0 + 2.5 * wild) + 0.0006 * dot(uv - 0.5, uv - 0.5);
   vec2 cdir = normalize(dv + 1e-5) / aspect;
   vec3 scene;
   scene.r = texture(uScene, suv + cdir * ca).r;
@@ -200,10 +213,14 @@ void main() {
       w *= 0.9;
     }
     acc /= 8.0;
-    float shafts = vnoise3(polar * 9.0 + vec3(0.0, 0.0, uTime * 0.35));
-    shafts = 0.25 + 1.5 * pow(shafts, 2.5);
-    // light pouring out of the apex itself
-    vec3 core = vec3(0.55, 0.75, 1.0) * pow(vnoise3(polar * 16.0 + vec3(3.0, 0.0, uTime * 0.6)), 3.0) * 0.7 / (1.0 + r * 3.5);
+    float shafts = vnoise3(polar * (9.0 + 9.0 * uChaos) + vec3(uSeed * 11.0, 0.0, uTime * (0.35 + 1.4 * uChaos)));
+    shafts = 0.25 + 1.5 * pow(shafts, 2.5 - uChaos);
+    // flicker: steady at 1c, stuttering at 100c
+    float flick = mix(1.0, 0.35 + 1.4 * hash12(vec2(floor(uTime * 14.0), uSeed * 91.0)), uChaos * 0.7);
+    // light pouring out of the apex itself, drifting through colours at high factors
+    vec3 coreCol = mix(vec3(0.55, 0.75, 1.0), warpHue(uSeed + uTime * 0.07 + ang * 0.08), uChaos * 0.55);
+    vec3 core = coreCol * pow(vnoise3(polar * 16.0 + vec3(3.0, 0.0, uTime * 0.6)), 3.0) * (0.7 + 0.8 * wild) / (1.0 + r * 3.5);
+    shafts *= flick;
     col += (acc * vec3(0.8, 0.9, 1.0) * shafts * 0.3 + core * shafts) * uRays * smoothstep(0.0, 0.08, r) * (0.25 + 0.75 * space);
   }
 
@@ -213,7 +230,7 @@ void main() {
     float occl = smoothstep(0.52, 0.72, veins) * smoothstep(0.12, 0.6, r);
     float edge = smoothstep(0.45, 1.35, r);
     float horizon = exp(-pow((r - 0.11) / 0.045, 2.0));
-    col *= 1.0 - uWarp * clamp((0.7 * occl + 0.5 * horizon) * space + 0.55 * edge * (0.5 + veins), 0.0, 0.9);
+    col *= 1.0 - uWarp * clamp(((0.7 * occl + 0.5 * horizon) * space + 0.55 * edge * (0.5 + veins)) * (0.75 + 0.5 * wild), 0.0, 0.93);
     float a1 = ang * 40.0 / TAU;
     float cell = floor(a1 * 4.0);
     float rnd = hash12(vec2(cell, 3.7));
@@ -225,6 +242,7 @@ void main() {
     float wisps = fbm3(vec3(cos(ang) * 2.5, sin(ang) * 2.5, z2));
     float mask = smoothstep(0.08, 0.6, r) * smoothstep(1.6, 0.5, r);
     vec3 tint = mix(vec3(0.45, 0.65, 1.0), vec3(0.8, 0.72, 1.0), rnd);
+    tint = mix(tint, warpHue(uSeed + rnd * 0.6 + uTime * 0.05) * 1.2, uChaos * 0.6 * rnd2);
     vec3 tunnel = tint * (streak * 0.9 + pow(wisps, 4.0) * 0.35) * mask;
     // glow of the warp bubble around the apex
     tunnel += vec3(0.6, 0.8, 1.0) * 0.18 / (1.0 + r * r * 160.0);
@@ -258,6 +276,8 @@ export interface PostParams {
   bubble: number;
   spool: number;
   rays: number;
+  chaos: number;
+  seed: number;
   shake: number;
 }
 
@@ -325,7 +345,7 @@ export class PostPipeline {
         uBloomStrength: { value: 0.05 }, uTime: { value: 0 },
         uSunUv: { value: new Vector2() }, uSunOn: { value: 0 }, uSunPower: { value: 1 },
         uApex: { value: new Vector2(0.5, 0.5) }, uWarp: { value: 0 }, uWarpSpeed: { value: 1 }, uFlash: { value: 0 },
-        uBubble: { value: 0 }, uShake: { value: 0 }, uSpool: { value: 0 }, uRays: { value: 0 },
+        uBubble: { value: 0 }, uShake: { value: 0 }, uSpool: { value: 0 }, uRays: { value: 0 }, uChaos: { value: 0 }, uSeed: { value: 0 },
       },
     });
     this.quad = new Mesh(tri, this.comp);
@@ -422,6 +442,8 @@ export class PostPipeline {
     u.uBubble.value = p.bubble;
     u.uSpool.value = p.spool;
     u.uRays.value = p.rays;
+    u.uChaos.value = p.chaos;
+    u.uSeed.value = p.seed;
     u.uShake.value = p.shake;
     this.pass(this.comp, null);
     r.autoClear = autoClear;
