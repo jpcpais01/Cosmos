@@ -1,6 +1,7 @@
 import { Quaternion, Vector3 } from 'three';
 import type { Ephemeris } from '../sim/ephemeris';
 import type { Ship } from '../ship/flight';
+import type { ViewMode } from '../ship/cameraRig';
 import { lookQuat } from '../ship/flight';
 import { DEG } from '../sim/constants';
 import { latLonToBody } from '../sim/frames';
@@ -13,6 +14,8 @@ export interface SavedLocation {
   epoch: number | null;
   /** places the ship; called after the ephemeris was updated to the epoch */
   place(eph: Ephemeris, ship: Ship): void;
+  /** camera view to switch to on arrival (keeps the current one when unset) */
+  view?: ViewMode;
   custom?: boolean;
 }
 
@@ -40,6 +43,30 @@ function horizonLook(up: Vector3, dir: Vector3, elev: number, out: Vector3): Vec
 
 function elevation(up: Vector3, dir: Vector3): number {
   return Math.asin(Math.max(-1, Math.min(1, dir.dot(up))));
+}
+
+const dirTo = (eph: Ephemeris, from: string, to: string) => new Vector3().subVectors(eph.get(to).pos, eph.get(from).pos).normalize();
+/** a body's spin axis (world) */
+const poleOf = (eph: Ephemeris, id: string) => {
+  const e = eph.get(id).rot.elements;
+  return new Vector3(e[6], e[7], e[8]).normalize();
+};
+/** unit vector perpendicular to `v`, in the plane of `v` and `hint` */
+function perpTo(v: Vector3, hint: Vector3): Vector3 {
+  const p = hint.clone().addScaledVector(v, -hint.dot(v));
+  if (p.lengthSq() < 1e-10) p.set(0, 0, 1).addScaledVector(v, -v.z);
+  return p.normalize();
+}
+/** `a` turned by `deg` toward the unit vector `b` (which must be perpendicular to it) */
+const turn = (a: Vector3, b: Vector3, deg: number) => a.clone().multiplyScalar(Math.cos(deg * DEG)).addScaledVector(b, Math.sin(deg * DEG)).normalize();
+/**
+ * Puts the ship at `abs` (km, world) facing `target`, with `up` as the up hint. `lower` (deg) points the nose
+ * that much below the target, so in the cockpit it sits higher in the view, clear of the dashboard.
+ */
+function aimShip(ship: Ship, eph: Ephemeris, frame: string, abs: Vector3, target: Vector3, up: Vector3, lower = 0): void {
+  let dir = new Vector3().subVectors(target, abs).normalize();
+  if (lower) dir = turn(dir, perpTo(dir, up).negate(), lower);
+  setShip(ship, eph, frame, abs, lookQuat(dir, up));
 }
 
 export const DEFAULT_LOCATIONS: SavedLocation[] = [
@@ -157,6 +184,185 @@ export const DEFAULT_LOCATIONS: SavedLocation[] = [
       const toS = _d.subVectors(S.pos, abs).normalize();
       const fwd = toS.clone().addScaledVector(perp, -0.12).normalize();
       setShip(ship, eph, 'saturn', abs, lookQuat(fwd, z.multiplyScalar(sunSide)));
+    },
+  },
+  // --- more views, each at a moment chosen for its light
+  {
+    id: 'eclipse-2027',
+    name: 'Total Eclipse · 2 Aug 2027',
+    description: 'The Moon\'s shadow crossing Egypt during the longest total eclipse of the century, seen from 18,000 km above the sunlit Earth.',
+    epoch: Date.UTC(2027, 7, 2, 10, 7, 0),
+    view: 'cockpit',
+    place(eph, ship) {
+      const E = eph.get('earth');
+      const M = eph.get('moon');
+      // straight above the point where the shadow axis (Sun -> Moon) meets the Earth, so the dark spot is mid-disc
+      const axis = new Vector3().subVectors(M.pos, eph.get('sun').pos).normalize();
+      const along = new Vector3().subVectors(E.pos, M.pos).dot(axis);
+      const closest = new Vector3().copy(M.pos).addScaledVector(axis, along).sub(E.pos);
+      const miss = closest.length();
+      // the sunward point where the axis enters the Earth (or the nearest point, should it miss)
+      const u = closest.addScaledVector(axis, -Math.sqrt(Math.max(0, E.def.radius ** 2 - miss * miss))).normalize();
+      const abs = new Vector3().copy(E.pos).addScaledVector(u, E.def.radius + 18_000);
+      aimShip(ship, eph, 'earth', abs, E.pos, poleOf(eph, 'earth'), 9);
+    },
+  },
+  {
+    id: 'earth-and-moon',
+    name: 'Half Moon, Half Earth',
+    description: 'From just beyond the Moon at last quarter: the Moon half lit, with a half-lit Earth beside it 400,000 km away.',
+    epoch: Date.UTC(2026, 2, 10, 12, 0, 0),
+    view: 'cockpit',
+    place(eph, ship) {
+      const M = eph.get('moon');
+      const u = dirTo(eph, 'earth', 'moon');
+      const side = perpTo(u, dirTo(eph, 'moon', 'sun'));
+      // out past the Moon and a little to the side, so the Earth peeks out beside it
+      const abs = new Vector3().copy(M.pos).addScaledVector(u, 11_000).addScaledVector(side, -3_000);
+      const toM = new Vector3().subVectors(M.pos, abs).normalize();
+      const toE = new Vector3().subVectors(eph.get('earth').pos, abs).normalize();
+      const look = toM.multiplyScalar(0.6).add(toE.multiplyScalar(0.4)).normalize();
+      aimShip(ship, eph, 'moon', abs, look.add(abs), poleOf(eph, 'earth'), 7);
+    },
+  },
+  {
+    id: 'venus-crescent',
+    name: 'Venus Crescent',
+    description: 'Hanging off the night side of Venus, its thick clouds lit as a slender sunlit crescent.',
+    epoch: Date.UTC(2026, 9, 11, 12, 0, 0),
+    view: 'cockpit',
+    place(eph, ship) {
+      const V = eph.get('venus');
+      const pole = poleOf(eph, 'venus');
+      const s = dirTo(eph, 'venus', 'sun');
+      // swing round toward the night side in the equator plane, so the Sun sits off to one side
+      const side = new Vector3().crossVectors(pole, s).normalize();
+      const u = turn(s, side, 135);
+      const abs = new Vector3().copy(V.pos).addScaledVector(u, V.def.radius * 3.6);
+      // look a little away from the Sun to keep its glare out of the frame
+      const toV = new Vector3().subVectors(V.pos, abs).normalize();
+      const fwd = turn(toV, perpTo(toV, s).negate(), 14);
+      aimShip(ship, eph, 'venus', abs, fwd.add(abs), pole, 6);
+    },
+  },
+  {
+    id: 'mercury-sunrise',
+    name: 'Dawn on Mercury',
+    description: '150 km above Mercury just after sunrise, the low Sun behind you casting long shadows across the craters.',
+    epoch: Date.UTC(2026, 9, 11, 12, 0, 0),
+    view: 'cockpit',
+    place(eph, ship) {
+      const H = eph.get('mercury');
+      const s = dirTo(eph, 'mercury', 'sun');
+      const h = 150;
+      const dip = Math.acos(H.def.radius / (H.def.radius + h));
+      // a spot where the Sun stands just above the horizon
+      // the Sun 10 degrees up, so the ground below is lit at a low angle
+      const u = turn(s, perpTo(s, poleOf(eph, 'mercury')), 80);
+      const abs = new Vector3().copy(H.pos).addScaledVector(u, H.def.radius + h);
+      // look away from the Sun and down past the horizon, so the lit, long-shadowed ground fills the view
+      const fwd = horizonLook(u, s.clone().negate(), -dip - 9 * DEG, new Vector3());
+      setShip(ship, eph, 'mercury', abs, lookQuat(fwd, u));
+    },
+  },
+  {
+    id: 'phobos-mars',
+    name: 'Phobos over Mars',
+    description: 'Flying beside the potato-shaped moon Phobos, 6,000 km above the red planet\'s sunlit face.',
+    epoch: Date.UTC(2026, 9, 11, 8, 50, 0),
+    view: 'chase',
+    place(eph, ship) {
+      const P = eph.get('phobos');
+      const M = eph.get('mars');
+      const out = dirTo(eph, 'mars', 'phobos');
+      const side = perpTo(out, dirTo(eph, 'mars', 'sun'));
+      const abs = new Vector3().copy(P.pos).addScaledVector(out, 30).addScaledVector(side, 22);
+      // look at Mars, swung a little toward Phobos so both share the frame
+      const target = new Vector3().copy(M.pos).lerp(P.pos, 0.35);
+      aimShip(ship, eph, 'phobos', abs, target, poleOf(eph, 'mars'));
+    },
+  },
+  {
+    id: 'io-shadow',
+    name: 'Io\'s Shadow on Jupiter',
+    description: 'The black shadow of Io on Jupiter\'s cloud tops as the moon passes between Jupiter and the Sun (2 Oct 2026).',
+    epoch: Date.UTC(2026, 9, 2, 2, 50, 0),
+    view: 'cockpit',
+    place(eph, ship) {
+      const J = eph.get('jupiter');
+      const s = dirTo(eph, 'jupiter', 'sun');
+      const u = turn(s, perpTo(s, poleOf(eph, 'jupiter')), 12);
+      const abs = new Vector3().copy(J.pos).addScaledVector(u, 260_000);
+      aimShip(ship, eph, 'jupiter', abs, J.pos, poleOf(eph, 'jupiter'), 8);
+    },
+  },
+  {
+    id: 'saturn-eclipse',
+    name: 'Saturn Eclipsing the Sun',
+    description: 'Deep in Saturn\'s shadow with the Sun hidden behind the planet, its rings and night side lit from behind, after Cassini\'s famous view.',
+    epoch: Date.UTC(2026, 9, 11, 12, 0, 0),
+    view: 'cockpit',
+    place(eph, ship) {
+      const S = eph.get('saturn');
+      const z = poleOf(eph, 'saturn');
+      const s = dirTo(eph, 'saturn', 'sun');
+      const anti = s.clone().negate();
+      // behind Saturn, just above the ring plane, so the planet covers the Sun
+      const u = turn(anti, perpTo(anti, z), 5);
+      const abs = new Vector3().copy(S.pos).addScaledVector(u, 520_000);
+      aimShip(ship, eph, 'saturn', abs, S.pos, z, 8);
+    },
+  },
+  {
+    id: 'titan-saturn',
+    name: 'Titan before Saturn',
+    description: 'Behind the hazy orange moon Titan, with ringed Saturn hanging in the sky beyond it.',
+    epoch: Date.UTC(2026, 9, 9, 20, 0, 0),
+    view: 'chase',
+    place(eph, ship) {
+      const T = eph.get('titan');
+      const S = eph.get('saturn');
+      const out = dirTo(eph, 'saturn', 'titan');
+      const side = perpTo(out, dirTo(eph, 'titan', 'sun'));
+      const abs = new Vector3().copy(T.pos).addScaledVector(out, T.def.radius * 6).addScaledVector(side, T.def.radius * 2.4);
+      const target = new Vector3().copy(S.pos).lerp(T.pos, 0.82);
+      aimShip(ship, eph, 'titan', abs, target, poleOf(eph, 'saturn'));
+    },
+  },
+  {
+    id: 'miranda-uranus',
+    name: 'Uranus from Miranda',
+    description: 'Skimming the patchwork cliffs of Miranda, with the pale, half-lit globe of Uranus rising over the horizon.',
+    epoch: Date.UTC(2026, 9, 11, 19, 30, 0),
+    view: 'chase',
+    place(eph, ship) {
+      const Mi = eph.get('miranda');
+      const toU = dirTo(eph, 'miranda', 'uranus');
+      const h = 20;
+      const dip = Math.acos(Mi.def.radius / (Mi.def.radius + h));
+      // over sunlit ground, with Uranus 14 degrees above the horizon
+      const u = turn(toU, perpTo(toU, dirTo(eph, 'miranda', 'sun')), 90 + dip / DEG - 14);
+      const abs = new Vector3().copy(Mi.pos).addScaledVector(u, Mi.def.radius + h);
+      const dir = new Vector3().subVectors(eph.get('uranus').pos, abs).normalize();
+      const fwd = horizonLook(u, dir, -dip + 6 * DEG, new Vector3());
+      setShip(ship, eph, 'miranda', abs, lookQuat(fwd, u));
+    },
+  },
+  {
+    id: 'pluto-charon',
+    name: 'Pluto and Charon',
+    description: 'Beside Charon at the edge of the planets, looking across 19,600 km of space to Pluto, with the Sun only a bright star behind you.',
+    epoch: Date.UTC(2026, 9, 5, 13, 0, 0),
+    view: 'chase',
+    place(eph, ship) {
+      const C = eph.get('charon');
+      const P = eph.get('pluto');
+      const out = dirTo(eph, 'pluto', 'charon');
+      // sideways across the view (Pluto's pole is up), so Charon sits beside the ship rather than under it
+      const side = new Vector3().crossVectors(out, poleOf(eph, 'pluto')).normalize();
+      const abs = new Vector3().copy(C.pos).addScaledVector(out, C.def.radius * 4.5).addScaledVector(side, C.def.radius * 5);
+      const target = new Vector3().copy(P.pos).lerp(C.pos, 0.6);
+      aimShip(ship, eph, 'charon', abs, target, poleOf(eph, 'pluto'));
     },
   },
 ];
