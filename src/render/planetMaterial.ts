@@ -2,6 +2,7 @@ import { ALBEDO_SCALE } from './albedo';
 import { BackSide, CustomBlending, OneFactor, OneMinusSrcAlphaFactor, ShaderMaterial, Texture, Matrix3, Vector2, Vector3, Vector4 } from 'three';
 import { TRANS_H, TRANS_W, transmittanceTexture } from './atmoLut';
 import { EQUIRECT, LOGDEPTH_PARS, LOGDEPTH_VERTEX, MATH } from './glsl';
+import { SHIP_MASK, shipMaskUniforms } from './shipMask';
 import type { BodyDef } from '../sim/bodies';
 
 export const MAX_OCCLUDERS = 4;
@@ -21,6 +22,7 @@ const fragment = /* glsl */ `
 ${LOGDEPTH_PARS}
 ${MATH}
 ${EQUIRECT}
+${SHIP_MASK}
 varying vec3 vRel;
 
 uniform vec3 uCenter;      // body centre relative to camera (world axes)
@@ -179,6 +181,8 @@ vec3 scatter(vec3 ro, vec3 rd, float t0, float t1, float R, vec3 L, bool hitGrou
 #endif
 
 void main() {
+  // under the cockpit: the ship pass paints over this pixel, so skip all the work
+  if (behindShip()) discard;
   vec3 rdW = normalize(vRel);
   vec3 roB = uW2B * (-uCenter);
   vec3 rdB = uW2B * rdW;
@@ -451,6 +455,7 @@ export function createPlanetMaterial(def: BodyDef, map: Texture, hasNormal: bool
       uHM: { value: a?.mieH ?? 1 },
       uG: { value: a?.mieG ?? 0.7 },
       uAtmoI: { value: a?.intensity ?? 1 },
+      ...shipMaskUniforms,
     },
   });
   return mat;

@@ -11,6 +11,13 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     date: '2026-10-11',
+    title: 'No work wasted behind the dashboard',
+    notes: [
+      'From the cockpit, the sky and the planets are no longer drawn in the part of the screen the dashboard, the nose and the canopy frame cover. That is about a quarter of the view in a normal seat, and it skips the most expensive pixels when a planet fills the lower half of the screen.',
+    ],
+  },
+  {
+    date: '2026-10-11',
     title: 'Lighter on the graphics card',
     notes: [
       'The game no longer rewrites the whole frame once more every time the Sun is on screen or the warp drive is on. The ship\'s outline now comes for free from the depth it already draws.',
