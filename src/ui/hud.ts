@@ -33,6 +33,8 @@ export interface Settings {
   fov: number;
   /** render resolution as a share of the screen's native pixels; 'auto' lets the quality tier and frame rate decide */
   resolution: 'auto' | number;
+  /** jumping to one of your saved locations also sets the clock to when it was saved */
+  locTime: boolean;
 }
 
 /** Fixed render resolutions offered in Settings, as a share of the screen's native pixels. */
@@ -48,7 +50,7 @@ export function defaultQuality(): Quality {
 }
 
 export function loadSettings(): Settings {
-  const d: Settings = { quality: defaultQuality(), invertY: false, sensitivity: 1, labels: true, fps: true, minimap: true, perf: true, sound: true, volume: 0.7, fov: 72, resolution: 'auto' };
+  const d: Settings = { quality: defaultQuality(), invertY: false, sensitivity: 1, labels: true, fps: true, minimap: true, perf: true, sound: true, volume: 0.7, fov: 72, resolution: 'auto', locTime: true };
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (raw) return { ...d, ...(JSON.parse(raw) as Partial<Settings>) };
@@ -77,7 +79,9 @@ export interface HudActions {
   timePause(): void;
   timeNow(): void;
   goLocation(l: SavedLocation): void;
+  /** an empty name is filled in from where the ship is */
   saveLocation(name: string): void;
+  renameLocation(id: string, name: string): void;
   deleteLocation(id: string): void;
   settingsChanged(s: Settings): void;
   fullscreen(): void;
@@ -352,35 +356,85 @@ export class Hud {
     const head = el('div', 'panel-head', 'SAVED LOCATIONS');
     head.append(btn('✕', 'Close', () => this.closePanels(), 'btn tiny'));
     p.append(head);
+
+    // save the current spot: position, which way the ship faces and the time
+    const form = el('form', 'loc-save');
+    const input = el('input');
+    input.placeholder = 'Name this spot (optional)';
+    input.maxLength = 40;
+    form.append(input, el('button', 'btn primary', 'SAVE HERE'));
+    form.onsubmit = (e) => {
+      e.preventDefault();
+      this.actions.saveLocation(input.value.trim());
+      input.value = '';
+      input.blur();
+    };
+    p.append(form);
+    const timeRow = el('label', 'loc-time');
+    const timeBox = el('input');
+    timeBox.type = 'checkbox';
+    timeBox.checked = this.settings.locTime;
+    timeBox.onchange = () => {
+      this.settings.locTime = timeBox.checked;
+      saveSettings(this.settings);
+    };
+    timeRow.append(timeBox, el('span', '', 'Jump to the time it was saved, so the planets and lighting are as they were'));
+    p.append(timeRow);
+
     const list = el('div', 'loc-list');
     const add = (l: SavedLocation) => {
-      const row = el('button', 'loc-item');
-      row.append(el('div', 'loc-title', l.name), el('div', 'loc-desc', l.description));
-      row.onclick = () => {
+      const row = el('div', 'loc-item');
+      const go = el('button', 'loc-go');
+      const title = el('div', 'loc-title');
+      title.textContent = l.name;
+      const desc = el('div', 'loc-desc');
+      desc.textContent = l.description;
+      go.append(title, desc);
+      go.onclick = () => {
         this.closePanels();
         this.actions.goLocation(l);
       };
+      row.append(go);
       if (l.custom) {
+        const edit = btn('✎', 'Rename', () => {
+          // swap the row's button for a text field (not inside it, where Space would press the button);
+          // Enter or leaving it keeps the new name, Escape cancels
+          const field = el('input', 'loc-rename');
+          field.value = l.name;
+          field.maxLength = 40;
+          let done = false;
+          const finish = (keep: boolean) => {
+            if (done) return;
+            done = true;
+            const name = field.value.trim();
+            if (keep && name && name !== l.name) this.actions.renameLocation(l.id, name);
+            else field.replaceWith(go);
+          };
+          field.onkeydown = (e) => {
+            e.stopPropagation();
+            if (e.key === 'Enter') finish(true);
+            else if (e.key === 'Escape') finish(false);
+          };
+          field.onblur = () => finish(true);
+          field.onclick = (e) => e.stopPropagation();
+          go.replaceWith(field);
+          field.focus();
+          field.select();
+        }, 'btn tiny');
         const del = btn('✕', 'Delete', () => this.actions.deleteLocation(l.id), 'btn tiny del');
-        row.append(del);
+        const tools = el('div', 'loc-tools');
+        tools.append(edit, del);
+        row.append(tools);
       }
       list.append(row);
     };
+    if (custom.length) {
+      list.append(el('div', 'sep', 'YOUR LOCATIONS'));
+      [...custom].reverse().forEach(add);
+    } else list.append(el('div', 'loc-empty', 'Nothing saved yet. Save this spot above, or press B while flying.'));
+    list.append(el('div', 'sep', 'FAMOUS VIEWS'));
     defaults.forEach(add);
-    if (custom.length) list.append(el('div', 'sep', 'YOUR LOCATIONS'));
-    custom.forEach(add);
     p.append(list);
-    const form = el('form', 'loc-save');
-    const input = el('input');
-    input.placeholder = 'Name this view…';
-    input.maxLength = 40;
-    form.append(input, el('button', 'btn', 'SAVE HERE'));
-    form.onsubmit = (e) => {
-      e.preventDefault();
-      this.actions.saveLocation(input.value.trim() || 'My location');
-      input.value = '';
-    };
-    p.append(form);
   }
 
   private buildSettings(): void {
@@ -521,6 +575,7 @@ export class Hud {
       ['Roll buttons', 'Hold to roll left / right'],
       ['Destination', 'Tap it (or the map button) to choose a body or any point'],
       ['10c', 'Tap to change the warp factor: 1c, 3c, 10c, 50c, 100c'],
+      ['Pin', 'Saved locations: save this spot, jump back, rename or delete'],
       ['ENGAGE', 'Jump to warp · tap again to drop out'],
       ['•••', 'Labels, sound, settings, controls, update, fullscreen'],
     ];
@@ -537,7 +592,8 @@ export class Hud {
       ['M', 'Solar system map: pick a body or any coordinates'],
       ['1 – 5', 'Warp factor 1c, 3c, 10c, 50c, 100c'],
       ['J', 'Engage warp / drop out'],
-      ['L', 'Saved locations'],
+      ['L', 'Saved locations: jump to, rename or delete them'],
+      ['B', 'Save this spot (position, heading and time) to your locations'],
       ['T', 'Toggle labels'],
       ['G', 'Toggle the FPS counter'],
       ['N', 'Toggle the minimap: nearby bodies around the ship in 3D, log distance, stalks show above or below your wings'],
