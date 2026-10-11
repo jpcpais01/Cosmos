@@ -232,6 +232,10 @@ async function main(): Promise<void> {
     eph.update(simMs);
     l.place(eph, ship);
     ship.updateEnvironment();
+    if (l.view) {
+      rig.setMode(l.view);
+      shipView.configureShadows(l.view === 'cockpit');
+    }
     rig.resetLook();
     env.update(0, ship.absPos(new Vector3()), 1, true);
     hud.syncTouchThrottle(0);

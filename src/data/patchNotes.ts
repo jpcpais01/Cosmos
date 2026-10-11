@@ -11,6 +11,14 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     date: '2026-10-11',
+    title: 'Ten new famous views',
+    notes: [
+      'The Saved locations panel (L or the pin button) has ten more places to jump to, each at a moment picked for its light: the Moon\'s shadow on Earth during the 2027 total eclipse, Io\'s shadow on Jupiter, Saturn hiding the Sun, a crescent Venus, dawn on Mercury, Phobos over Mars, Titan before Saturn, Uranus from Miranda, Pluto and Charon, and a half Moon beside a half Earth.',
+      'Some of them switch to the chase camera so the ship is in the shot.',
+    ],
+  },
+  {
+    date: '2026-10-11',
     title: 'A cleaner phone layout',
     notes: [
       'On phones the flight controls now take centre stage: a tall throttle on the right edge with BOOST, BRAKE and REV beside it, and the stick and roll buttons on the left.',
