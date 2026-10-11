@@ -93,6 +93,8 @@ uniform float uFlash;
 uniform float uBubble;    // lens distortion of the warp bubble
 uniform float uSpool;     // warp drive charging 0..1
 uniform float uRays;      // god-ray strength 0..1
+uniform float uSpike;     // chromatic aberration spike that goes with a camera jolt, 0..~1.4
+uniform float uSpikeAngle;
 uniform float uChaos;     // 0 at 1c .. 1 at 100c: how extreme and erratic the warp gets
 uniform float uSeed;      // new random value for every jump
 
@@ -271,12 +273,18 @@ void main() {
   float trailRipple = 0.5 + 0.5 * sin(lr * (9.0 + 7.0 * uChaos) - uTime * (4.0 + 3.0 * uWarpSpeed) + n1 * (6.0 + 6.0 * uChaos));
   vec2 suv = uApex + lens / aspect;
   // chromatic aberration is the warp's only colour: red and blue split apart radially, more with speed
-  float ca = uBubble * r * (0.004 + 0.008 * uChaos + 0.004 * wild) * space + 0.0006 * dot(uv - 0.5, uv - 0.5);
+  float ca = uBubble * r * (0.006 + 0.011 * uChaos + 0.005 * wild) * (1.0 + 2.5 * uSpike) * space + 0.0006 * dot(uv - 0.5, uv - 0.5);
   vec2 cdir = normalize(dv + 1e-5) / aspect;
+  // on a jolt the channels also jump apart sideways, ragged in horizontal bands like a glitch
+  vec2 gofs = vec2(0.0);
+  if (uSpike > 0.01) {
+    float band = vnoise3(vec3(uv.y * 26.0, uSpikeAngle * 7.0, uTime * 24.0));
+    gofs = vec2(cos(uSpikeAngle), sin(uSpikeAngle)) / aspect * uSpike * 0.007 * (0.3 + 1.4 * band) * space;
+  }
   vec3 scene;
-  scene.r = texture(uScene, suv + cdir * ca).r;
+  scene.r = texture(uScene, suv + cdir * ca + gofs).r;
   scene.g = texture(uScene, suv).g;
-  scene.b = texture(uScene, suv - cdir * ca).b;
+  scene.b = texture(uScene, suv - cdir * ca - gofs).b;
   scene = min(scene, vec3(6.0e4));
   vec3 bloom = texture(uBloom, suv).rgb;
 
@@ -307,7 +315,7 @@ void main() {
     // white light pouring out of the apex itself
     float core = pow(vnoise3(wpolar * 16.0 + vec3(3.0, 0.0, lr * 0.9 - flowT * 0.5)), 3.0) * (0.7 + 0.8 * wild) / (1.0 + r * 3.5);
     shafts *= flick;
-    col += (acc * shafts * 0.3 + core * shafts) * uRays * smoothstep(0.0, 0.08, r) * space;
+    col += (acc * shafts * 0.12 + core * shafts * 0.5) * uRays * smoothstep(0.0, 0.08, r) * space;
   }
 
   // Warp tunnel: sparse light streaks scrolling out of the apex (polar coordinates, log-radius)
@@ -316,27 +324,27 @@ void main() {
     float occl = smoothstep(0.52, 0.72, veins) * smoothstep(0.12, 0.6, r);
     float edge = smoothstep(0.45, 1.35, r);
     float horizon = exp(-pow((r - 0.11) / 0.045, 2.0));
-    col *= 1.0 - uWarp * space * clamp((0.7 * occl + 0.5 * horizon + 0.55 * edge * (0.5 + veins)) * (0.75 + 0.5 * wild), 0.0, 0.93);
+    col *= 1.0 - uWarp * space * clamp((0.45 * occl + 0.4 * horizon + 0.3 * edge * (0.5 + veins)) * (0.75 + 0.5 * wild), 0.0, 0.6);
     // flowing ribbons of light: noise stretched along the log-radius, scrolling outward and following the
     // morphing trail field, so the tunnel wall shimmers like rippling silk rather than a hail of dashes
     // two layers at different speeds give the wall depth; the fine near layer is split into red, green and
     // blue a little apart along the radius, the only colour in the tunnel (chromatic aberration)
     float z = lr * 0.55 - flowT * 0.45;
     float rib = vnoise3(wpolar * (6.0 + 4.0 * uChaos) + vec3(uSeed * 17.0, 0.0, z));
-    float cz = 0.02 + 0.04 * uChaos + 0.02 * wild;
+    float cz = 0.03 + 0.05 * uChaos + 0.02 * wild + 0.08 * uSpike;
     vec3 z2 = vec3(lr - cz, lr, lr + cz) * 0.95 - flowT * 0.8 - uTime * 0.3;
     vec3 rp = wpolar * (15.0 + 8.0 * uChaos) + vec3(0.0, uSeed * 29.0, 0.0);
     vec3 rib2 = vec3(vnoise3(rp + vec3(0.0, 0.0, z2.x)), vnoise3(rp + vec3(0.0, 0.0, z2.y)), vnoise3(rp + vec3(0.0, 0.0, z2.z)));
-    vec3 ribbons = pow(rib, 3.0) * 0.8 + pow(rib2, vec3(4.0)) * 0.7;
+    vec3 ribbons = pow(rib, 4.0) * 0.5 + pow(rib2, vec3(6.0)) * 0.9;
     ribbons *= 0.55 + 0.9 * trailRipple;
     float mask = smoothstep(0.08, 0.6, r) * smoothstep(1.6, 0.5, r);
     vec3 tunnel = ribbons * (0.75 + 0.75 * uChaos) * mask;
     // white glow of the warp bubble around the apex, its rim fringed
-    tunnel += 0.18 / (1.0 + r * r * 160.0 * vec3(1.0 - cz, 1.0, 1.0 + cz));
-    col += tunnel * uWarp * 0.55 * space;
+    tunnel += 0.08 / (1.0 + r * r * 160.0 * vec3(1.0 - cz, 1.0, 1.0 + cz));
+    col += tunnel * uWarp * 0.35 * space;
   }
-  // entry / exit flash: bright at the apex, a soft veil elsewhere
-  col += uFlash * (0.25 + 2.5 / (1.0 + r * r * 30.0 * vec3(0.9, 1.0, 1.1))) * (space + 0.15 * inside);
+  // entry / exit flash: a brief glow at the apex only, no white veil over the view
+  col += uFlash * 0.6 / (1.0 + r * r * 120.0 * vec3(0.9, 1.0, 1.1)) * space;
 
   gl_FragColor = finish(col);
 }
@@ -446,6 +454,9 @@ export interface PostParams {
   rays: number;
   chaos: number;
   seed: number;
+  /** chromatic aberration spike (0..~1.4) and its direction, from the camera shake jolts */
+  spike: number;
+  spikeAngle: number;
   shake: number;
 }
 
@@ -517,7 +528,7 @@ export class PostPipeline {
         uBloomStrength: { value: 0.05 }, uTime: { value: 0 },
         uSunUv: { value: new Vector2() }, uSunOn: { value: 0 }, uSunPower: { value: 1 }, uSunRadius: { value: 0 },
         uApex: { value: new Vector2(0.5, 0.5) }, uWarp: { value: 0 }, uWarpSpeed: { value: 1 }, uFlash: { value: 0 },
-        uBubble: { value: 0 }, uSpool: { value: 0 }, uRays: { value: 0 }, uChaos: { value: 0 }, uSeed: { value: 0 },
+        uBubble: { value: 0 }, uSpool: { value: 0 }, uRays: { value: 0 }, uSpike: { value: 0 }, uSpikeAngle: { value: 0 }, uChaos: { value: 0 }, uSeed: { value: 0 },
       },
     });
     this.compWarp = new ShaderMaterial({
@@ -618,6 +629,8 @@ export class PostPipeline {
     u.uBubble.value = p.bubble;
     u.uSpool.value = p.spool;
     u.uRays.value = p.rays;
+    u.uSpike.value = p.spike;
+    u.uSpikeAngle.value = p.spikeAngle;
     u.uChaos.value = p.chaos;
     u.uSeed.value = p.seed;
     this.profiler?.gpu(this.aa ? 'Final image + AA' : 'Final image');

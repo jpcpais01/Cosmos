@@ -23,25 +23,38 @@ function noise1(x: number): number {
   return (hash1(i) * (1 - u) + hash1(i + 1) * u) * 2 - 1;
 }
 
+/** Envelope (0..~1.4) and direction (rad) of the latest warp jolt, for the matching chromatic aberration spike. */
+export interface ShakeSpike {
+  amount: number;
+  angle: number;
+}
+
 /**
  * Warp camera shake as yaw/pitch/roll angles (rad): a slow smooth sway, a faster rumble that comes and goes
- * in bursts, and now and then a soft jolt that rings out. `amount` 0..1 scales it all.
+ * in bursts, and every so often a sharp jolt that rings out. `amount` 0..1 scales it all.
  */
-function warpShake(t: number, amount: number, out: Euler): Euler {
+function warpShake(t: number, amount: number, out: Euler, spike: ShakeSpike): Euler {
+  spike.amount = 0;
   if (amount <= 0) return out.set(0, 0, 0);
   const sway = (s: number) => noise1(t * 0.9 + s) * 0.6 + noise1(t * 2.3 + s * 3.1) * 0.3;
   const burst = Math.max(0, noise1(t * 0.35 + 7.7)) * 1.6;
   const rumble = (s: number) => noise1(t * 7.5 + s) * 0.35 * burst;
-  // a jolt can start every 0.8 s; about a third of the slots fire, decaying over ~0.3 s
-  const slot = Math.floor(t / 0.8);
-  const dtJ = t - slot * 0.8;
-  const fire = hash1(slot + 0.5) > 0.66 ? 1 : 0;
-  const jolt = fire * Math.exp(-dtJ * 9) * Math.sin(dtJ * 38) * (0.6 + 0.8 * hash1(slot + 1.5));
-  const a = amount * 0.012;
+  // a jolt can start every 0.55 s; a bit under half the slots fire, hitting at once and ringing out over ~0.25 s
+  const slot = Math.floor(t / 0.55);
+  const dtJ = t - slot * 0.55;
+  const fire = hash1(slot + 0.5) > 0.55 ? 1 : 0;
+  const env = fire * Math.exp(-dtJ * 11) * (0.6 + 0.8 * hash1(slot + 1.5));
+  const jolt = env * Math.cos(dtJ * 42);
+  // smaller twitches in between, too short to see as motion but enough to flick the colours
+  const tslot = Math.floor(t / 0.17);
+  const twitch = (hash1(tslot + 9.5) > 0.8 ? 1 : 0) * Math.exp(-(t - tslot * 0.17) * 30) * 0.5;
+  spike.amount = Math.min(1.4, (env + twitch) * Math.min(1, amount * 1.5));
+  spike.angle = hash1(slot + 3.5) * Math.PI * 2;
+  const a = amount * 0.02;
   return out.set(
-    a * (sway(0) + rumble(10) + jolt * 0.9),
-    a * (sway(20) + rumble(30) + jolt * 0.5 * Math.sign(hash1(slot + 2.5) - 0.5)),
-    a * 0.6 * (sway(40) + rumble(50)),
+    a * (sway(0) + rumble(10) + jolt * 1.1 * Math.cos(spike.angle)),
+    a * (sway(20) + rumble(30) + jolt * 1.1 * Math.sin(spike.angle)),
+    a * 0.6 * (sway(40) + rumble(50) + jolt * 0.5),
   );
 }
 
@@ -66,6 +79,8 @@ export class CameraRig {
   /** extra pull-back / fov kick during warp */
   private kick = 0;
   fovBase = 72;
+  /** chromatic aberration spike that goes with the current shake jolt */
+  readonly spike: ShakeSpike = { amount: 0, angle: 0 };
 
   constructor(private eye: Vector3) {}
 
@@ -153,8 +168,9 @@ export class CameraRig {
     }
     // the view shakes during warp: smooth, a little bumpy, never a high-frequency buzz
     const amt = Math.min(1.5, rumble + shake * 0.8);
+    this.spike.amount = 0;
     if (amt > 0) {
-      warpShake(time, amt * (cockpit ? 1 : 0.7), _e);
+      warpShake(time, amt * (cockpit ? 1 : 0.75), _e, this.spike);
       _q.setFromAxisAngle(_y, _e.y);
       _q2.setFromAxisAngle(_x, _e.x);
       this.quat.multiply(_q).multiply(_q2).multiply(_q.setFromAxisAngle(_z, _e.z));
