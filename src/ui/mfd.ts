@@ -27,27 +27,40 @@ function panel(w: number, h: number): { canvas: HTMLCanvasElement; ctx: CanvasRe
   return { canvas, ctx, tex };
 }
 
-function frame(ctx: CanvasRenderingContext2D, w: number, h: number, title: string): void {
+/** Background, faint grid and border of a panel, drawn once per size and then copied. */
+const backgrounds = new Map<string, HTMLCanvasElement>();
+
+function background(w: number, h: number): HTMLCanvasElement {
+  const key = `${w}x${h}`;
+  let c = backgrounds.get(key);
+  if (c) return c;
+  c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext('2d')!;
   ctx.fillStyle = BG;
   ctx.fillRect(0, 0, w, h);
-  // faint grid
   ctx.strokeStyle = 'rgba(95,212,255,0.05)';
   ctx.lineWidth = 1;
+  ctx.beginPath();
   for (let x = 0; x < w; x += 24) {
-    ctx.beginPath();
     ctx.moveTo(x, 0);
     ctx.lineTo(x, h);
-    ctx.stroke();
   }
   for (let y = 0; y < h; y += 24) {
-    ctx.beginPath();
     ctx.moveTo(0, y);
     ctx.lineTo(w, y);
-    ctx.stroke();
   }
+  ctx.stroke();
   ctx.strokeStyle = DIM;
   ctx.lineWidth = 2;
   ctx.strokeRect(6, 6, w - 12, h - 12);
+  backgrounds.set(key, c);
+  return c;
+}
+
+function frame(ctx: CanvasRenderingContext2D, w: number, h: number, title: string): void {
+  ctx.drawImage(background(w, h), 0, 0);
   ctx.fillStyle = CYAN;
   ctx.font = `600 18px ${FONT}`;
   ctx.textBaseline = 'top';
@@ -70,10 +83,11 @@ export class Mfd {
     return [this.left.tex, this.center.tex, this.right.tex];
   }
 
-  update(dt: number, simMs: number): void {
+  /** `close`: the screens fill the view (cockpit); from outside they are small, so they refresh less often. */
+  update(dt: number, simMs: number, close = true): void {
     this.t -= dt;
     if (this.t > 0) return;
-    this.t = 0.1;
+    this.t = close ? 0.1 : 0.5;
     this.drawShip();
     this.drawNav();
     this.drawSystem(simMs);

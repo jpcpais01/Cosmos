@@ -111,6 +111,9 @@ float skyVisibility() {
 }
 `;
 
+const _rot = new Matrix4();
+const _view = new Matrix4();
+
 export class Sky {
   readonly scene = new Scene();
   readonly camera = new OrthographicCamera(-1, 1, 1, -1, 0, 1);
@@ -332,10 +335,10 @@ void main() {
     camQuat: Quaternion, proj: Matrix4, viewportPx: Vector2, px: number, brightness: number,
     vel: Vector3, beta: number, warp: number,
   ): void {
-    const view = new Matrix4().makeRotationFromQuaternion(camQuat).invert();
-    this.viewProj.multiplyMatrices(proj, view);
+    const rot = _rot.makeRotationFromQuaternion(camQuat);
     const bu = this.bgMat.uniforms;
-    (bu.uCamRot.value as Matrix3).setFromMatrix4(new Matrix4().makeRotationFromQuaternion(camQuat));
+    (bu.uCamRot.value as Matrix3).setFromMatrix4(rot);
+    this.viewProj.multiplyMatrices(proj, _view.copy(rot).invert());
     // projection: x_ndc = P00 * x / -z  ->  tan of the half-angles
     (bu.uTan.value as Vector2).set(1 / proj.elements[0], 1 / proj.elements[5]);
     bu.uIntensity.value = 0.1 * brightness;

@@ -18,6 +18,7 @@ const VISUAL_BETA: Record<number, number> = { 1: 0.3, 3: 0.42, 10: 0.55, 50: 0.6
 const _a = new Vector3();
 const _b = new Vector3();
 const _c = new Vector3();
+const _off = new Vector3();
 
 /** Arrival distance from a body's centre (km) for a nice framing. */
 export function arrivalDistance(id: string): number {
@@ -63,7 +64,8 @@ export class WarpDrive {
     if (target.kind === 'body') {
       const b = this.eph.get(target.id);
       if (this.state !== 'idle' && target === this.target) return out.copy(b.pos).add(this.arrivalOffset);
-      return out.copy(b.pos).add(this.computeArrivalOffset(target.id, _c));
+      // own scratch: `out` is often _c itself (eta, engage), which the offset must not overwrite
+      return out.copy(b.pos).add(this.computeArrivalOffset(target.id, _off));
     }
     return out.copy(this.eph.get(target.frame).pos).add(target.offset);
   }

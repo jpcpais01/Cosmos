@@ -11,6 +11,16 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     date: '2026-10-11',
+    title: 'Lighter on the processor',
+    notes: [
+      'The HUD only rewrites text that changed, and the scanner no longer forces the page to re-measure its layout 30 times a second.',
+      'The cockpit screens refresh less often when you are outside the ship, and their grid is drawn once instead of every refresh.',
+      'Planet positions are not recalculated while time is paused.',
+      'Fixed the warp ETA and the "too close" check, which used the wrong distance before you engaged.',
+    ],
+  },
+  {
+    date: '2026-10-11',
     title: 'Patch notes in a popup',
     notes: ['The patch notes now sit behind a small What\'s new button in the top right of the title screen. Close them with the X, a tap outside or Escape.'],
   },

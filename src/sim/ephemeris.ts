@@ -99,7 +99,12 @@ export class Ephemeris {
     return this.states.get(id)!;
   }
 
+  private lastMs = NaN;
+
   update(simMs: number): void {
+    // paused (or called twice for the same instant): every state is already right
+    if (simMs === this.lastMs) return;
+    this.lastMs = simMs;
     const time = Astronomy.MakeTime(new Date(simMs));
     this.time = time;
     const tDays = (simMs - J2000_MS) / DAY_MS;
