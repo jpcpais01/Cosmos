@@ -9,6 +9,15 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    version: '0.23',
+    date: '2026-10-11',
+    title: 'Continue your flight',
+    notes: [
+      'The game remembers your last flight: Continue on the title screen puts the ship back next to the same planet or moon, facing the same way, with the same speed, view and warp target.',
+      'New flight on the title screen starts over from low Earth orbit.',
+    ],
+  },
+  {
     version: '0.22',
     date: '2026-10-11',
     title: 'Seamless warp colours',

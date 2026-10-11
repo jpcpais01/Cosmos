@@ -234,7 +234,7 @@ body {
 #loading.ready .intro-title > :nth-child(4) {
   transition-delay: 0.94s;
 }
-#loading.ready .intro-title > :nth-child(5),
+#loading.ready .intro-title > :nth-child(n + 5),
 #loading.ready .intro-foot {
   transition-delay: 1.2s;
 }
@@ -313,6 +313,43 @@ body {
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--intro-faint);
+}
+/* Continue + New flight, shown when there is a saved flight to pick up */
+.intro-fresh {
+  display: none;
+  height: 48px;
+  padding: 0 4px;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  background: none;
+  color: var(--intro-dim);
+  font-family: var(--intro-font);
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+.intro-fresh:hover,
+.intro-fresh:focus-visible {
+  color: var(--intro-ink);
+  outline: none;
+}
+.intro-actions.has-resume .intro-fresh {
+  display: inline-block;
+}
+.intro-actions.has-resume .intro-hint {
+  display: none;
+}
+.intro-resume {
+  margin: 14px 0 0;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--intro-faint);
+}
+.intro-resume:empty {
+  display: none;
 }
 .intro-foot {
   position: absolute;

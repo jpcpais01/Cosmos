@@ -16,6 +16,7 @@ import { CameraRig } from './ship/cameraRig';
 import { WarpDrive, type WarpTarget } from './game/warp';
 import { DEFAULT_LOCATIONS, deleteCustomLocation, loadCustomLocations, saveCustomLocation, type SavedLocation } from './game/locations';
 import { Input } from './game/input';
+import { clearLastFlight, lastFlightLocation, lastFlightTarget, loadLastFlight, resumeMotion, saveLastFlight } from './game/resume';
 import { Hud, loadSettings, saveSettings, type Quality, type Settings } from './ui/hud';
 import { SystemMap } from './ui/map';
 import { Mfd } from './ui/mfd';
@@ -389,14 +390,22 @@ async function main(): Promise<void> {
   resize();
 
   const params = new URLSearchParams(location.search);
-  // --- start state (deep links: ?loc=<id>&view=cockpit|chase|far)
-  goLocation(DEFAULT_LOCATIONS.find((l) => l.id === params.get('loc')) ?? DEFAULT_LOCATIONS[0]);
+  // --- start state: the last flight, unless a deep link names a place (?loc=<id>&view=cockpit|chase|far)
+  let lastFlight = params.has('loc') ? null : loadLastFlight();
+  if (lastFlight) {
+    goLocation(lastFlightLocation(lastFlight));
+    const { target, factor } = lastFlightTarget(lastFlight);
+    warp.setTarget(target);
+    warp.factor = factor;
+    rig.setMode(lastFlight.view);
+  } else goLocation(DEFAULT_LOCATIONS.find((l) => l.id === params.get('loc')) ?? DEFAULT_LOCATIONS[0]);
   const startView = params.get('view');
   if (startView === 'chase' || startView === 'far' || startView === 'cockpit') rig.setMode(startView);
   hud.closePanels();
   // title screen: the scene plays behind it from a slow far-chase orbit; flight starts in `launchView`
   let intro = !params.has('autostart');
-  const launchView = rig.mode;
+  let launchView = rig.mode;
+  if (!intro && lastFlight) resumeMotion(lastFlight, ship);
   if (intro) {
     rig.setMode('far');
     rig.lookPitch = 0.08;
@@ -463,6 +472,10 @@ async function main(): Promise<void> {
       const pts = (universe as unknown as { pointInt: Float32Array }).pointInt;
       return { x, y, ndc: [rel.x, rel.y, rel.z], max: Math.max(...f.filter((_, i) => i % 4 !== 3)), int: pts[universe.views.indexOf(v)] };
     },
+    /** the saved last flight (null if none) and a way to forget it */
+    lastFlight: () => loadLastFlight(),
+    saveFlight: () => saveLastFlight(simMs, ship, warp, rig.mode),
+    clearFlight: () => clearLastFlight(),
     state: () => ({
       simMs, frame: ship.frame.def.id, altitude: ship.altitude, warp: warp.state, dynScale,
       fps: Math.round(1 / Math.max(fpsAvg, 1e-3)),
@@ -492,6 +505,12 @@ async function main(): Promise<void> {
     });
   }
   window.addEventListener('pointerdown', () => sound.start(), { once: true });
+
+  // the last flight is kept every few seconds and whenever the page is hidden or closed
+  const saveFlight = () => !intro && saveLastFlight(simMs, ship, warp, rig.mode);
+  window.setInterval(saveFlight, 5000);
+  window.addEventListener('pagehide', saveFlight);
+  document.addEventListener('visibilitychange', () => document.visibilityState === 'hidden' && saveFlight());
 
   // --- frame loop
   const camAbs = new Vector3();
@@ -927,12 +946,31 @@ async function main(): Promise<void> {
     loading.classList.add('ready');
     window.setTimeout(() => document.getElementById('load-stars')?.remove(), 2000);
     const start = $<HTMLButtonElement>('start');
+    const fresh = $<HTMLButtonElement>('start-fresh');
+    if (lastFlight) {
+      start.firstChild!.textContent = 'Continue';
+      $('resume-where').textContent = `Last flight · ${placeInfo().nearest}`;
+      document.querySelector('.intro-actions')?.classList.add('has-resume');
+    }
     await new Promise<void>((resolve) => {
       const go = () => {
         window.removeEventListener('keydown', onKey);
         resolve();
       };
+      fresh.addEventListener('click', () => {
+        // forget the saved flight and start from the default place, at the real time
+        clearLastFlight();
+        lastFlight = null;
+        simMs = Date.now();
+        timeIdx = 0;
+        paused = false;
+        warp.setTarget(null);
+        goLocation(DEFAULT_LOCATIONS[0]);
+        launchView = startView === 'chase' || startView === 'far' ? startView : 'cockpit';
+        go();
+      }, { once: true });
       const onKey = (e: KeyboardEvent) => {
+        if (document.activeElement === fresh) return;
         if (e.code === 'Enter' || e.code === 'NumpadEnter' || e.code === 'Space') {
           e.preventDefault();
           go();
@@ -960,6 +998,10 @@ async function main(): Promise<void> {
     fade.classList.add('dip');
     await new Promise((r) => window.setTimeout(r, 550));
     intro = false;
+    if (lastFlight) {
+      resumeMotion(lastFlight, ship);
+      hud.syncTouchThrottle(ship.throttle);
+    }
     rig.setMode(launchView);
     shipView.configureShadows(launchView === 'cockpit');
     fade.classList.remove('dip');
