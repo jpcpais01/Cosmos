@@ -11,6 +11,11 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     date: '2026-10-11',
+    title: 'Fixed gloves',
+    notes: ['The pilot\'s gloves no longer have see-through fingertips and palms, and the fingers wrap round the stick and throttle instead of cutting into them.'],
+  },
+  {
+    date: '2026-10-11',
     title: 'Smooth turn before warp',
     notes: ['When the ship turns to face a warp target it now eases into the turn, swings round at a steady rate and settles gently on the target, just like turning with the mouse. The pilot moves the stick along with it.'],
   },
