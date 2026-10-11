@@ -71,8 +71,77 @@ float pnlSeams(vec2 q, out float id) {
 }
 
 /**
+ * The generated hull has parts that came out inside out (the fuselage loft and the mirrored copies
+ * of some parts): faces and normals point inward, so back-face culling hid the near wall and the
+ * inside of the far wall showed through. Each connected piece is a (nearly) closed shell, so a
+ * negative signed volume means it is inside out; those pieces get their winding and normals flipped.
+ */
+function fixInsideOut(geo: BufferGeometry): number {
+  const P = geo.attributes.position;
+  const N = geo.attributes.normal;
+  const I = geo.index;
+  if (!I || !N) return 0;
+  // weld by position (normals split vertices along sharp edges)
+  const ids = new Map<string, number>();
+  const vk = new Int32Array(P.count);
+  for (let i = 0; i < P.count; i++) {
+    const k = `${P.getX(i).toFixed(5)},${P.getY(i).toFixed(5)},${P.getZ(i).toFixed(5)}`;
+    let id = ids.get(k);
+    if (id === undefined) ids.set(k, (id = ids.size));
+    vk[i] = id;
+  }
+  const parent = Int32Array.from({ length: ids.size }, (_, i) => i);
+  const find = (x: number): number => {
+    while (parent[x] !== x) x = parent[x] = parent[parent[x]];
+    return x;
+  };
+  const tris = I.count / 3;
+  for (let t = 0; t < tris; t++) {
+    const a = find(vk[I.getX(3 * t)]);
+    parent[find(vk[I.getX(3 * t + 1)])] = a;
+    parent[find(vk[I.getX(3 * t + 2)])] = a;
+  }
+  const comps = new Map<number, number[]>();
+  for (let t = 0; t < tris; t++) {
+    const r = find(vk[I.getX(3 * t)]);
+    let c = comps.get(r);
+    if (!c) comps.set(r, (c = []));
+    c.push(t);
+  }
+  const a = new Vector3(), b = new Vector3(), c = new Vector3(), o = new Vector3();
+  let flipped = 0;
+  for (const list of comps.values()) {
+    o.set(0, 0, 0);
+    for (const t of list) for (let j = 0; j < 3; j++) o.add(b.fromBufferAttribute(P, I.getX(3 * t + j)));
+    o.divideScalar(list.length * 3);
+    let vol = 0;
+    for (const t of list) {
+      a.fromBufferAttribute(P, I.getX(3 * t)).sub(o);
+      b.fromBufferAttribute(P, I.getX(3 * t + 1)).sub(o);
+      c.fromBufferAttribute(P, I.getX(3 * t + 2)).sub(o);
+      vol += a.dot(b.cross(c));
+    }
+    if (vol >= 0) continue;
+    const verts = new Set<number>();
+    for (const t of list) {
+      const i1 = I.getX(3 * t + 1);
+      I.setX(3 * t + 1, I.getX(3 * t + 2));
+      I.setX(3 * t + 2, i1);
+      for (let j = 0; j < 3; j++) verts.add(I.getX(3 * t + j));
+    }
+    for (const v of verts) N.setXYZ(v, -N.getX(v), -N.getY(v), -N.getZ(v));
+    flipped += list.length;
+  }
+  if (flipped) {
+    I.needsUpdate = true;
+    N.needsUpdate = true;
+  }
+  return flipped;
+}
+
+/**
  * Canopy glass: reflections are added over the scene behind. From inside it is nearly clear; from
- * outside it is smoked, so the canopy reads as glass rather than a hole in the hull.
+ * outside it is lightly tinted, so it reads as glass while the pilot stays visible.
  */
 function glassMaterial(): MeshPhysicalMaterial {
   const m = new MeshPhysicalMaterial({
@@ -101,7 +170,7 @@ function glassMaterial(): MeshPhysicalMaterial {
       '#include <opaque_fragment>',
       /* glsl */ `
 float fres = pow(1.0 - abs(dot(normalize(vViewPosition), normal)), 4.0);
-float a = mix(mix(diffuseColor.a, 0.62, uOutside), mix(0.55, 0.92, uOutside), fres);
+float a = mix(mix(diffuseColor.a, 0.32, uOutside), mix(0.55, 0.85, uOutside), fres);
 vec3 tint = vec3(0.012, 0.02, 0.03) * uOutside;
 gl_FragColor = vec4(outgoingLight + tint * a, a);`,
     );
@@ -232,6 +301,8 @@ export class ShipView {
       return mats;
     };
     const hullMats = makeMats(hullAo);
+    // the hull's inner face is the cockpit wall below the canopy rim, so draw both sides
+    for (const m of Object.values(hullMats)) m.side = DoubleSide;
     const cockpitMats = makeMats(cockpitAo);
     const glass = glassMaterial();
     const inGroup = (o: Object3D, n: string): boolean => {
@@ -282,7 +353,10 @@ export class ShipView {
           m.receiveShadow = true;
         }
         if (isCockpit) interiorMeshes.push(m);
-        if (inGroup(m, 'Hull')) hullMeshes.push(m);
+        if (inGroup(m, 'Hull')) {
+          hullMeshes.push(m);
+          fixInsideOut(m.geometry);
+        }
       }
       if (o.name === 'EyePoint') eye = o.position.clone();
       if (o.name.startsWith('Nav')) navPos.push(o.position.clone());

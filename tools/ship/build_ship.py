@@ -511,6 +511,9 @@ for ob in (hull, cockpit):
     bm = bmesh.new()
     bm.from_mesh(ob.data)
     bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-5)
+    if ob is hull:
+        # the fuselage loft and mirrored parts come out inside out: point every shell's faces outward
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     bm.to_mesh(ob.data)
     bm.free()
     ob.data.update()
