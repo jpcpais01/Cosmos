@@ -10,6 +10,8 @@ export interface Settings {
   sensitivity: number;
   labels: boolean;
   fps: boolean;
+  /** 3D scanner in the corner of the HUD */
+  minimap: boolean;
   sound: boolean;
   volume: number;
   /** cockpit field of view in degrees; the chase views sit 12° narrower */
@@ -26,7 +28,7 @@ export function defaultQuality(): Quality {
 }
 
 export function loadSettings(): Settings {
-  const d: Settings = { quality: defaultQuality(), invertY: false, sensitivity: 1, labels: true, fps: true, sound: true, volume: 0.7, fov: 72 };
+  const d: Settings = { quality: defaultQuality(), invertY: false, sensitivity: 1, labels: true, fps: true, minimap: true, sound: true, volume: 0.7, fov: 72 };
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (raw) return { ...d, ...(JSON.parse(raw) as Partial<Settings>) };
@@ -150,6 +152,7 @@ export class Hud {
   private factorCycle: HTMLButtonElement;
   private labelsBtn: HTMLButtonElement;
   private fpsCheck?: HTMLInputElement;
+  private minimapCheck?: HTMLInputElement;
   readonly touch = el('div', 'touch hidden');
   stick = { x: 0, y: 0 };
   touchThrottle: number | null = null;
@@ -234,7 +237,7 @@ export class Hud {
     this.refreshToggles();
   }
 
-  toggle(k: 'sound' | 'labels' | 'fps'): void {
+  toggle(k: 'sound' | 'labels' | 'fps' | 'minimap'): void {
     this.settings[k] = !this.settings[k];
     this.refreshToggles();
     saveSettings(this.settings);
@@ -247,6 +250,8 @@ export class Hud {
     this.labelLayer.style.display = this.settings.labels ? '' : 'none';
     this.fpsEl.style.display = this.settings.fps ? '' : 'none';
     if (this.fpsCheck) this.fpsCheck.checked = this.settings.fps;
+    this.root.classList.toggle('no-minimap', !this.settings.minimap);
+    if (this.minimapCheck) this.minimapCheck.checked = this.settings.minimap;
   }
 
   showPanel(p: HTMLElement): void {
@@ -367,6 +372,12 @@ export class Hud {
     fps.onchange = () => this.toggle('fps');
     this.fpsCheck = fps;
     row('Show FPS counter', fps);
+    const mini = el('input');
+    mini.type = 'checkbox';
+    mini.checked = s.minimap;
+    mini.onchange = () => this.toggle('minimap');
+    this.minimapCheck = mini;
+    row('Show minimap', mini);
     const vol = el('input');
     vol.type = 'range';
     vol.min = '0';
@@ -406,6 +417,7 @@ export class Hud {
       ['L', 'Saved locations'],
       ['T', 'Toggle labels'],
       ['G', 'Toggle the FPS counter'],
+      ['N', 'Toggle the minimap: nearby bodies around the ship in 3D, log distance, stalks show above or below your wings'],
       [', / . / P', 'Slower / faster / pause time'],
       ['F', 'Fullscreen'],
       ['H', 'This help'],

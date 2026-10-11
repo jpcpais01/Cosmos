@@ -18,6 +18,7 @@ import { Input } from './game/input';
 import { Hud, loadSettings, saveSettings, type Quality, type Settings } from './ui/hud';
 import { SystemMap } from './ui/map';
 import { Mfd } from './ui/mfd';
+import { Minimap } from './ui/minimap';
 import { Sound } from './audio/sound';
 import { fmtDistance } from './ui/format';
 import { startSplashStars } from './ui/splash';
@@ -340,6 +341,9 @@ async function main(): Promise<void> {
     map.hide();
     engage();
   };
+  const minimap = new Minimap(eph, ship, warp);
+  minimap.onClick = toggleMap;
+  hud.root.append(minimap.root);
   $('ui').append(hud.root, map.root);
   input.canLock = () => !map.open && !hud.panelOpen;
   input.onLockChange = (on) => hud.setMouseFlight(on);
@@ -540,6 +544,9 @@ async function main(): Promise<void> {
           break;
         case 'KeyG':
           hud.toggle('fps');
+          break;
+        case 'KeyN':
+          hud.toggle('minimap');
           break;
         case 'KeyF':
           if (document.fullscreenElement) void document.exitFullscreen();
@@ -782,6 +789,7 @@ async function main(): Promise<void> {
       hud.setAim({ x: -Math.tan(ship.aim.x) * focal, y: -Math.tan(ship.aim.y) * focal });
     } else hud.setAim(null);
     if (map.open) map.draw(simMs, t);
+    else if (settings.minimap) minimap.update(dt, t);
   };
 
   const placeInfo = () => {
