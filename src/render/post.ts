@@ -84,7 +84,7 @@ uniform float uSunPower;
 // warp
 uniform vec2 uApex;
 uniform float uWarp;      // tunnel strength 0..1
-uniform float uWarpSpeed; // streak scroll speed
+uniform float uWarpSpeed; // how fast the trails flow out of the apex
 uniform float uFlash;
 uniform float uBubble;    // lens distortion of the warp bubble
 uniform float uShake;
@@ -137,6 +137,7 @@ void main() {
   vec2 tang = vec2(-radial.y, radial.x);
   vec3 polar = vec3(cos(ang), sin(ang), 0.0);
   float veins = 0.5;
+  float n1 = 0.5;
   float agitation = max(uBubble, uSpool * 0.8);
   // random surges that get stronger and more frequent with the warp factor
   float surge = smoothstep(0.55, 1.0, vnoise3(vec3(uTime * (0.5 + 2.5 * uChaos), uSeed * 37.0, 1.7)));
@@ -145,7 +146,7 @@ void main() {
     // space itself ripples: noisy waves running out of the apex, sheared sideways by a second noise field
     float flow = uTime * uWarpSpeed;
     vec3 so = vec3(uSeed * 61.0, uSeed * 23.0, 0.0);
-    float n1 = fbm3(polar * (1.7 + uChaos * 1.5) + so + vec3(0.0, 0.0, lr * 1.3 - flow * 0.6));
+    n1 = fbm3(polar * (1.7 + uChaos * 1.5) + so + vec3(0.0, 0.0, lr * 1.3 - flow * 0.6));
     veins = fbm3(polar * (4.0 + uChaos * 3.0) + so.yxz + vec3(5.2, 1.3, lr * 2.4 - flow * 0.8));
     float ripple = sin(lr * (14.0 + 6.0 * uChaos) - uTime * (6.0 + uWarpSpeed * 4.0) + n1 * (7.0 + 4.0 * uChaos));
     vec2 disp = radial * (ripple * 0.009 + (n1 - 0.5) * 0.035) + tang * (veins - 0.5) * 0.04;
@@ -164,6 +165,15 @@ void main() {
     lens += radial * uFlash * 0.07 * exp(-pow((r - sr) / 0.09, 2.0));
   }
   lens = mix(dv, lens, space);
+  // the light trails flow through a morphing field: their angle wanders with distance and time, so each
+  // shaft bends and undulates instead of shooting out dead straight
+  float flowT = uTime * uWarpSpeed;
+  float wob = (n1 - 0.5) * (0.22 + 0.3 * uChaos) + (veins - 0.5) * (0.08 + 0.2 * wild)
+            + sin(lr * 3.0 - flowT * 1.3 + ang * 3.0 + uSeed * 20.0) * 0.05 * (1.0 + wild);
+  float wang = ang + wob * smoothstep(0.02, 0.2, r);
+  vec3 wpolar = vec3(cos(wang), sin(wang), 0.0);
+  // ripples racing out along the trails, their fronts warped by the same noise
+  float trailRipple = 0.5 + 0.5 * sin(lr * (9.0 + 7.0 * uChaos) - uTime * (4.0 + 3.0 * uWarpSpeed) + n1 * (6.0 + 6.0 * uChaos));
   vec2 suv = uApex + lens / aspect;
   // chromatic aberration grows with warp
   float ca = uBubble * 0.006 * r * (1.0 + 2.5 * wild) + 0.0006 * dot(uv - 0.5, uv - 0.5);
@@ -213,13 +223,13 @@ void main() {
       w *= 0.9;
     }
     acc /= 8.0;
-    float shafts = vnoise3(polar * (9.0 + 9.0 * uChaos) + vec3(uSeed * 11.0, 0.0, uTime * (0.35 + 1.4 * uChaos)));
-    shafts = 0.25 + 1.5 * pow(shafts, 2.5 - uChaos);
+    float shafts = vnoise3(wpolar * (9.0 + 9.0 * uChaos) + vec3(uSeed * 11.0, 0.0, lr * 0.7 - flowT * 0.35 + uTime * 0.6 * uChaos));
+    shafts = (0.25 + 1.5 * pow(shafts, 2.5 - uChaos)) * (0.6 + 0.65 * trailRipple);
     // flicker: steady at 1c, stuttering at 100c
     float flick = mix(1.0, 0.35 + 1.4 * hash12(vec2(floor(uTime * 14.0), uSeed * 91.0)), uChaos * 0.7);
     // light pouring out of the apex itself, drifting through colours at high factors
     vec3 coreCol = mix(vec3(0.55, 0.75, 1.0), warpHue(uSeed + uTime * 0.07 + ang * 0.08), uChaos * 0.55);
-    vec3 core = coreCol * pow(vnoise3(polar * 16.0 + vec3(3.0, 0.0, uTime * 0.6)), 3.0) * (0.7 + 0.8 * wild) / (1.0 + r * 3.5);
+    vec3 core = coreCol * pow(vnoise3(wpolar * 16.0 + vec3(3.0, 0.0, lr * 0.9 - flowT * 0.5)), 3.0) * (0.7 + 0.8 * wild) / (1.0 + r * 3.5);
     shafts *= flick;
     col += (acc * vec3(0.8, 0.9, 1.0) * shafts * 0.3 + core * shafts) * uRays * smoothstep(0.0, 0.08, r) * (0.25 + 0.75 * space);
   }
@@ -231,19 +241,17 @@ void main() {
     float edge = smoothstep(0.45, 1.35, r);
     float horizon = exp(-pow((r - 0.11) / 0.045, 2.0));
     col *= 1.0 - uWarp * clamp(((0.7 * occl + 0.5 * horizon) * space + 0.55 * edge * (0.5 + veins)) * (0.75 + 0.5 * wild), 0.0, 0.93);
-    float a1 = ang * 40.0 / TAU;
-    float cell = floor(a1 * 4.0);
-    float rnd = hash12(vec2(cell, 3.7));
-    float rnd2 = hash12(vec2(cell, 9.1));
-    float z = lr * 1.6 - uTime * uWarpSpeed * (0.5 + rnd);
-    float on = step(0.55, rnd2);
-    float streak = on * smoothstep(0.86, 1.0, fract(z + rnd2 * 7.0)) * smoothstep(0.5, 0.0, abs(fract(a1 * 4.0) - 0.5));
-    float z2 = lr * 1.1 - uTime * uWarpSpeed * 0.35;
-    float wisps = fbm3(vec3(cos(ang) * 2.5, sin(ang) * 2.5, z2));
+    // flowing ribbons of light: noise stretched along the log-radius, scrolling outward and following the
+    // morphing trail field, so the tunnel wall shimmers like rippling silk rather than a hail of dashes
+    float z = lr * 0.55 - flowT * 0.45;
+    float rib = vnoise3(wpolar * (6.0 + 4.0 * uChaos) + vec3(uSeed * 17.0, 0.0, z));
+    float rib2 = vnoise3(wpolar * (15.0 + 8.0 * uChaos) + vec3(0.0, uSeed * 29.0, z * 1.7 - uTime * 0.3));
+    float ribbons = pow(rib, 3.0) * 0.8 + pow(rib2, 4.0) * 0.6;
+    ribbons *= 0.55 + 0.9 * trailRipple;
     float mask = smoothstep(0.08, 0.6, r) * smoothstep(1.6, 0.5, r);
-    vec3 tint = mix(vec3(0.45, 0.65, 1.0), vec3(0.8, 0.72, 1.0), rnd);
-    tint = mix(tint, warpHue(uSeed + rnd * 0.6 + uTime * 0.05) * 1.2, uChaos * 0.6 * rnd2);
-    vec3 tunnel = tint * (streak * 0.9 + pow(wisps, 4.0) * 0.35) * mask;
+    vec3 tint = mix(vec3(0.45, 0.65, 1.0), vec3(0.8, 0.72, 1.0), rib2);
+    tint = mix(tint, warpHue(uSeed + rib * 0.6 + uTime * 0.05) * 1.2, uChaos * 0.6 * rib);
+    vec3 tunnel = tint * ribbons * (0.75 + 0.75 * uChaos) * mask;
     // glow of the warp bubble around the apex
     tunnel += vec3(0.6, 0.8, 1.0) * 0.18 / (1.0 + r * r * 160.0);
     col += tunnel * uWarp * 0.55;
