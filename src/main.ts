@@ -8,6 +8,7 @@ import { AU_KM, C_KMS, DAY_MS, WARP_FACTORS, type WarpFactor } from './sim/const
 import { Universe, SUN_COLOR } from './render/universe';
 import { Sky, worldToGalactic } from './render/sky';
 import { PostPipeline } from './render/post';
+import { FrameProfiler } from './render/profiler';
 import { EnvMap } from './render/envmap';
 import { Ship, lookQuat } from './ship/flight';
 import { ShipView } from './ship/shipModel';
@@ -132,6 +133,9 @@ async function main(): Promise<void> {
   const universe = new Universe(renderer, eph, preset.maxTexture);
   const sky = new Sky();
   const post = new PostPipeline(renderer);
+  // per-pass costs for the performance readout
+  const prof = new FrameProfiler(renderer);
+  post.profiler = prof;
   post.setAA(preset.aa, preset.sharpen);
   const shipView = new ShipView(renderer);
   shipView.sun.shadow.mapSize.set(preset.shadow, preset.shadow);
@@ -573,6 +577,7 @@ async function main(): Promise<void> {
   const frame = () => {
     requestAnimationFrame(frame);
     const now = performance.now();
+    prof.beginFrame();
     const rawDt = (now - last) / 1000;
     last = now;
     const dt = Math.min(rawDt, 0.1) * dbg.speed;
@@ -586,7 +591,14 @@ async function main(): Promise<void> {
     fpsTime += rawDt;
     fpsFrames++;
     if (fpsTime >= 0.5) {
-      hud.setFps(fpsFrames / fpsTime, (fpsTime / fpsFrames) * 1000, dynScale);
+      hud.setFps(fpsFrames / fpsTime, (fpsTime / fpsFrames) * 1000, dynScale, prof.enabled ? {
+        report: prof.report(),
+        quality: settings.quality,
+        width: post.hdr.width,
+        height: post.hdr.height,
+        gpu: prof.gpuName,
+      } : null);
+      prof.enabled = settings.fps && settings.perf;
       fpsTime = 0;
       fpsFrames = 0;
     }
@@ -634,6 +646,7 @@ async function main(): Promise<void> {
     ship.update(dt, fi);
     if (fi.throttleDelta !== 0 || fi.brake) hud.syncTouchThrottle(ship.throttle);
     warp.update(dt);
+    prof.cpu('Flight & orbits');
 
     // camera
     const look = map.open ? ([0, 0] as [number, number]) : input.consumeLook();
@@ -664,6 +677,7 @@ async function main(): Promise<void> {
     const skyBright = (1 / distExposure) / (1 + Math.min(litCover, 1) * 22);
     universe.pointBrightness = 1 / distExposure;
     universe.update(camAbs, camQ, t, (simMs - Date.UTC(2000, 0, 1, 12)) / DAY_MS, pr);
+    prof.cpu('Planets & map streaming');
 
     // warp / sky
     ship.forward(fwd);
@@ -685,7 +699,9 @@ async function main(): Promise<void> {
     sl.intensity = irr * Math.PI * vis;
     sl.color.setRGB(SUN_COLOR.x, SUN_COLOR.y, SUN_COLOR.z);
     sl.castShadow = vis > 0.01;
+    prof.gpu('Reflections');
     env.update(dt, camAbs, 1 / distExposure);
+    prof.gpuEnd();
 
     const parts = shipView.parts!;
     parts.root.quaternion.copy(ship.quat);
@@ -710,13 +726,18 @@ async function main(): Promise<void> {
     const flick = 1 + fNorm * (0.5 * Math.sin(t * 7.3 + warpSeed * 20) * Math.sin(t * 3.1 + warpSeed * 9) + 2.5 * Math.max(0, Math.sin(t * 17 + warpSeed * 40)) ** 12);
     shipView.warpLight.color.setHSL(0.6 + fNorm * 0.22 * Math.sin(t * 0.9 + warpSeed * 30), 0.55 + 0.35 * fNorm, 0.7);
     shipView.warpLight.intensity = (warp.intensity * 8 + warp.spool * 6 + warp.flash * 20) * flick * (cockpit ? 0.8 : 1) * eg;
+    prof.cpu('Ship & lighting');
     mfd.update(dt, simMs);
+    prof.cpu('Cockpit screens');
 
     // render
+    prof.gpu('Sky & stars');
     renderer.setRenderTarget(post.hdr);
     renderer.clear(true, true, false);
     renderer.render(sky.scene, sky.camera);
+    prof.gpu('Planets & moons');
     renderer.render(universe.scene, universe.camera);
+    prof.gpu('Ship');
     renderer.clearDepth();
     // alpha becomes a ship mask (0 = world, 1 = ship) so warp distortion only bends space outside the hull
     gl.colorMask(false, false, false, true);
@@ -758,6 +779,8 @@ async function main(): Promise<void> {
       chaos: fNorm,
       seed: warpSeed,
     });
+    prof.gpuEnd();
+    prof.cpu('Render calls');
 
     // HUD
     sound.update(ship.throttle, fi.boost, warp.spool, warp.intensity, cockpit);
@@ -790,8 +813,11 @@ async function main(): Promise<void> {
       const focal = (cssH / 2) / Math.tan(MathUtils.degToRad(rig.camera.fov) / 2);
       hud.setAim({ x: -Math.tan(ship.aim.x) * focal, y: -Math.tan(ship.aim.y) * focal });
     } else hud.setAim(null);
+    prof.cpu('HUD & labels');
     if (map.open) map.draw(simMs, t);
     else if (settings.minimap) minimap.update(dt, t);
+    prof.cpu('Map & minimap');
+    prof.endFrame();
   };
 
   const placeInfo = () => {
