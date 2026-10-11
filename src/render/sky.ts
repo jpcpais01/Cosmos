@@ -143,8 +143,8 @@ void main() {
   float w0, w1;
   vec2 p0 = toScreen(d0, w0);
   vec2 p1 = toScreen(d1, w1);
-  // while streaking, faint stars would only add up to a grey veil: keep the naked-eye ones
-  if (I < 0.004 + uStreak * 0.6 || w0 <= 0.0) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
+  // in warp only the brightest stars stay; the rest would pass by as a swarm of specks
+  if (I < 0.004 + uStreak * 25.0 || w0 <= 0.0) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
   if (w1 <= 0.0) p1 = p0 + normalize(p0 + 1e-3) * uViewport.x;
   vec2 axis = p1 - p0;
   float len = length(axis);
