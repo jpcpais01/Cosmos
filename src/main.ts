@@ -452,6 +452,29 @@ async function main(): Promise<void> {
   loading.classList.add('done');
   window.setTimeout(() => loading.remove(), 1200);
   hud.toast('Welcome aboard. Press H for controls, M for the map.', 5000);
+
+  // Look for a new version whenever the app comes back to the foreground, and every 30 minutes.
+  // When one takes over while the game is open, light up the update button rather than reload mid-flight.
+  if ('serviceWorker' in navigator) {
+    const hadController = !!navigator.serviceWorker.controller;
+    const checkForUpdate = () => {
+      navigator.serviceWorker
+        .getRegistration()
+        .then((r) => r?.update())
+        .catch(() => undefined);
+    };
+    document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && checkForUpdate());
+    window.setInterval(checkForUpdate, 30 * 60 * 1000);
+    // the build this page runs, to tell a newer deploy from the worker of the one already loaded
+    const ownScript = document.querySelector<HTMLScriptElement>('script[type="module"][src*="/assets/"]')?.getAttribute('src');
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadController || refreshing || !ownScript) return;
+      fetch('/index.html', { cache: 'no-store' })
+        .then((r) => r.text())
+        .then((html) => !html.includes(ownScript) && hud.setUpdateReady())
+        .catch(() => undefined);
+    });
+  }
   window.addEventListener('pointerdown', () => sound.start(), { once: true });
 
   // --- frame loop

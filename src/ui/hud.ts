@@ -141,6 +141,7 @@ export class Hud {
   readonly settingsPanel = el('div', 'panel modal hidden');
   readonly helpPanel = el('div', 'panel modal hidden');
   private soundBtn: HTMLButtonElement;
+  private updateBtn: HTMLButtonElement;
   private labelsBtn: HTMLButtonElement;
   private fpsCheck?: HTMLInputElement;
   readonly touch = el('div', 'touch hidden');
@@ -166,6 +167,7 @@ export class Hud {
     const tr = el('div', 'hud-tr');
     this.soundBtn = btn(ICONS.sound, 'Sound on/off', () => this.toggle('sound'), 'btn icon');
     this.labelsBtn = btn(ICONS.tag, 'Labels on/off (T)', () => this.toggle('labels'), 'btn icon');
+    this.updateBtn = btn(ICONS.refresh, 'Update and reload the app', () => actions.refreshApp(), 'btn icon');
     tr.append(
       btn(ICONS.map, 'Solar system map (M)', () => actions.toggleMap(), 'btn icon'),
       btn(ICONS.pin, 'Saved locations (L)', () => this.showPanel(this.locPanel), 'btn icon'),
@@ -174,7 +176,7 @@ export class Hud {
       this.soundBtn,
       btn(ICONS.gear, 'Settings', () => this.showPanel(this.settingsPanel), 'btn icon'),
       btn(ICONS.help, 'Controls (H)', () => this.showPanel(this.helpPanel), 'btn icon'),
-      btn(ICONS.refresh, 'Update and reload the app', () => actions.refreshApp(), 'btn icon'),
+      this.updateBtn,
       btn(ICONS.full, 'Fullscreen (F)', () => actions.fullscreen(), 'btn icon'),
     );
 
@@ -438,6 +440,14 @@ export class Hud {
   syncTouchThrottle(v: number): void {
     const fill = this.touch.querySelector<HTMLDivElement>('.tthr-fill');
     if (fill) fill.style.height = `${v * 100}%`;
+  }
+
+  /** A newer version has been downloaded: highlight the update button. */
+  setUpdateReady(): void {
+    if (this.updateBtn.classList.contains('ready')) return;
+    this.updateBtn.classList.add('ready');
+    this.updateBtn.title = 'A new version is ready: click to load it';
+    this.toast('A new version of Cosmos is ready. Use the glowing update button to load it.', 6000);
   }
 
   toast(msg: string, ms = 3200): void {
