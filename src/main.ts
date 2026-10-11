@@ -221,6 +221,7 @@ async function main(): Promise<void> {
   const applySettings = (s: Settings) => {
     input.sensitivity = 0.0022 * s.sensitivity;
     input.invertY = s.invertY;
+    rig.fovBase = MathUtils.clamp(s.fov, 50, 110);
     sound.volume = s.volume;
     sound.setMuted(!s.sound);
     const next = PRESETS[s.quality];
