@@ -1,14 +1,24 @@
 import {
   AdditiveBlending, BufferAttribute, BufferGeometry, CanvasTexture, Color, CustomBlending, DirectionalLight,
   DoubleSide, Group, Mesh, MeshBasicMaterial, MeshPhysicalMaterial, MeshStandardMaterial, NoColorSpace, Object3D,
-  OneFactor, OneMinusSrcAlphaFactor, PCFShadowMap, PointLight, Points, Scene, ShaderMaterial, SRGBColorSpace,
-  Texture, TextureLoader, Vector2, Vector3, ZeroFactor, type Material, type WebGLRenderer,
+  OneFactor, OneMinusSrcAlphaFactor, PCFShadowMap, PointLight, Points, Scene, ShaderChunk, ShaderMaterial,
+  SRGBColorSpace, Texture, TextureLoader, Vector2, Vector3, ZeroFactor, type Material, type WebGLRenderer,
 } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { Pilot } from './pilot';
 
 const BASE = import.meta.env.BASE_URL;
+
+// A point light adds nothing where its attenuated colour is zero (the cabin lights outside their
+// short range, the warp light while it is off), so skip its BRDF there instead of evaluating it for
+// every hull pixel. Exact: the skipped term would have been multiplied by zero.
+{
+  const chunk = ShaderChunk.lights_fragment_begin;
+  const patched = chunk.replace(/(getPointLightInfo\( pointLight, geometryPosition, directLight \);[\s\S]*?)RE_Direct\(/, '$1if ( directLight.visible ) RE_Direct(');
+  if (patched === chunk) console.warn('point-light skip patch did not apply');
+  ShaderChunk.lights_fragment_begin = patched;
+}
 
 // engine glow colours: white-cyan at the centre, violet at the rim
 const HOT = new Color(0.55, 0.9, 1.0);
@@ -142,39 +152,76 @@ function fixInsideOut(geo: BufferGeometry): number {
 /**
  * Canopy glass: reflections are added over the scene behind. From inside it is nearly clear; from
  * outside it is lightly tinted, so it reads as glass while the pilot stays visible.
+ *
+ * From the cockpit the canopy covers most of the screen, so this is a small dedicated shader rather
+ * than a lit physical material: a mirror lookup in the environment map plus the sun's glint, with
+ * the same Fresnel (ior 1.5, specular 0.35) and opacity curve the physical version had.
  */
-function glassMaterial(): MeshPhysicalMaterial {
-  const m = new MeshPhysicalMaterial({
-    color: new Color(0, 0, 0),
-    roughness: 0.05,
-    metalness: 0.0,
+function glassMaterial(): ShaderMaterial {
+  const m = new ShaderMaterial({
+    vertexShader: /* glsl */ `
+varying vec3 vWPos;
+varying vec3 vWNrm;
+void main() {
+  vec4 wp = modelMatrix * vec4(position, 1.0);
+  vWPos = wp.xyz;
+  vWNrm = mat3(modelMatrix) * normal;
+  gl_Position = projectionMatrix * viewMatrix * wp;
+}`,
+    fragmentShader: /* glsl */ `
+uniform sampler2D uEnv;
+uniform float uHasEnv;
+uniform vec3 uSunDir;
+uniform vec3 uSunCol;
+uniform float uOutside;
+varying vec3 vWPos;
+varying vec3 vWNrm;
+const float PI = 3.14159265;
+void main() {
+  vec3 V = normalize(cameraPosition - vWPos);
+  vec3 N = normalize(vWNrm) * (gl_FrontFacing ? 1.0 : -1.0);
+  float nv = clamp(dot(N, V), 1e-3, 1.0);
+  const float F0 = 0.014, F90 = 0.35;
+  // environment reflection (equirect, same mapping three.js uses for it)
+  vec3 R = reflect(-V, N);
+  vec2 uv = vec2(atan(R.z, R.x) * (0.5 / PI) + 0.5, asin(clamp(R.y, -1.0, 1.0)) / PI + 0.5);
+  vec3 col = uHasEnv * texture2D(uEnv, uv).rgb * (F0 + (F90 - F0) * pow(1.0 - nv, 5.0));
+  // sun glint: GGX, roughness 0.08
+  float nl = dot(N, uSunDir);
+  if (nl > 0.0) {
+    vec3 H = normalize(uSunDir + V);
+    float nh = max(dot(N, H), 0.0);
+    const float a2 = 0.0064 * 0.0064;
+    float d = nh * nh * (a2 - 1.0) + 1.0;
+    float D = a2 / (PI * d * d);
+    float vis = 0.5 / max(nl * sqrt(a2 + (1.0 - a2) * nv * nv) + nv * sqrt(a2 + (1.0 - a2) * nl * nl), 1e-5);
+    float F = F0 + (F90 - F0) * pow(1.0 - max(dot(V, H), 0.0), 5.0);
+    col += uSunCol * nl * F * vis * D;
+  }
+  float fres = pow(1.0 - nv, 4.0);
+  float a = mix(mix(0.1, 0.32, uOutside), mix(0.55, 0.85, uOutside), fres);
+  vec3 tint = vec3(0.012, 0.02, 0.03) * uOutside;
+  gl_FragColor = vec4(col + tint * a, a);
+}`,
+    uniforms: {
+      uEnv: { value: null },
+      uHasEnv: { value: 0 },
+      uSunDir: { value: new Vector3(0, 1, 0) },
+      uSunCol: { value: new Color(0, 0, 0) },
+      uOutside: { value: 0 },
+    },
     transparent: true,
-    opacity: 0.1,
     side: DoubleSide,
     depthWrite: false,
-    envMapIntensity: 1.0,
-    specularIntensity: 0.35,
-    ior: 1.5,
   });
+  // one pass for both faces: the layers are nearly clear, so their order does not show
+  m.forceSinglePass = true;
   m.blending = CustomBlending;
   m.blendSrc = OneFactor;
   m.blendDst = OneMinusSrcAlphaFactor;
   // leave the alpha channel (the post pass's ship mask) alone: what is seen through the glass is space
   m.blendSrcAlpha = ZeroFactor;
   m.blendDstAlpha = OneFactor;
-  const outside = { value: 0 };
-  m.userData.outside = outside;
-  m.onBeforeCompile = (s) => {
-    s.uniforms.uOutside = outside;
-    s.fragmentShader = 'uniform float uOutside;\n' + s.fragmentShader.replace(
-      '#include <opaque_fragment>',
-      /* glsl */ `
-float fres = pow(1.0 - abs(dot(normalize(vViewPosition), normal)), 4.0);
-float a = mix(mix(diffuseColor.a, 0.32, uOutside), mix(0.55, 0.85, uOutside), fres);
-vec3 tint = vec3(0.012, 0.02, 0.03) * uOutside;
-gl_FragColor = vec4(outgoingLight + tint * a, a);`,
-    );
-  };
   return m;
 }
 
@@ -236,6 +283,7 @@ export class ShipView {
   readonly cabin = new PointLight(0xffc89a, 0, 2.5, 2);
   readonly screenLight = new PointLight(0x7fd8ff, 0, 1.8, 2);
   readonly warpLight = new PointLight(0x88aaff, 0, 30, 1.2);
+  readonly glass = glassMaterial();
   parts?: ShipParts;
 
   constructor(renderer: WebGLRenderer) {
@@ -303,7 +351,7 @@ export class ShipView {
     const cockpitMats = makeMats(cockpitAo);
     // the moving levers are not part of the baked cockpit
     const leverMats = makeMats(null);
-    const glass = glassMaterial();
+    const glass = this.glass;
     const inGroup = (o: Object3D, n: string): boolean => {
       for (let p: Object3D | null = o; p; p = p.parent) if (p.name.startsWith(n)) return true;
       return false;
@@ -349,6 +397,7 @@ export class ShipView {
         if (name === 'Glass') {
           canopy = m;
           m.renderOrder = 10;
+          m.onBeforeRender = () => this.updateGlass();
         } else if (name !== 'EngineGlow' && name !== 'Screen') {
           m.castShadow = true;
           m.receiveShadow = true;
@@ -439,12 +488,19 @@ void main() { vec2 d = gl_PointCoord - 0.5; float g = exp(-dot(d, d) * 40.0); gl
 
   /** Smoked canopy glass from outside, clear from the cockpit. */
   setCanopyOutside(outside: boolean): void {
-    const u = (this.parts?.canopy?.material as Material | undefined)?.userData.outside as { value: number } | undefined;
-    if (u) u.value = outside ? 1 : 0;
+    this.glass.uniforms.uOutside.value = outside ? 1 : 0;
   }
 
   setEnvMap(env: Texture | null): void {
     this.scene.environment = env;
+    this.glass.uniforms.uEnv.value = env;
+    this.glass.uniforms.uHasEnv.value = env ? 1 : 0;
+  }
+
+  private updateGlass(): void {
+    const u = this.glass.uniforms;
+    (u.uSunDir.value as Vector3).subVectors(this.sun.position, this.sun.target.position).normalize();
+    (u.uSunCol.value as Color).copy(this.sun.color).multiplyScalar(this.sun.intensity);
   }
 
   /** In the cockpit the exterior is mostly hidden by the camera anyway; keep shadows tight around the eye. */

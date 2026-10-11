@@ -190,6 +190,16 @@ async function main(): Promise<void> {
   showProgress();
   shipView.setScreens(mfd.textures);
   shipView.setEnvMap(env.texture);
+  // the canopy glass covers most of the screen from the cockpit: time it as its own pass
+  const canopy = shipView.parts?.canopy;
+  if (canopy) {
+    const before = canopy.onBeforeRender;
+    canopy.onBeforeRender = function (...a) {
+      before.apply(this, a);
+      prof.gpu('Canopy glass');
+    };
+    canopy.onAfterRender = () => prof.gpu('Ship');
+  }
 
   // --- UI
   let customLocations = loadCustomLocations();
@@ -449,7 +459,7 @@ async function main(): Promise<void> {
       tex: universe.views.map((v) => `${v.state.def.id}:${(v.mat.uniforms.uMap.value as { image?: { width: number } }).image?.width}`).join(' '),
     }),
     dbg: (o: Partial<typeof dbg>) => Object.assign(dbg, o),
-    internals: () => ({ universe, sky, post, renderer, shipView, ship, warp, eph }),
+    internals: () => ({ universe, sky, post, renderer, shipView, ship, warp, eph, rig }),
     /** points the ship at a body */
     face: (id: string) => {
       const d = new Vector3().subVectors(eph.get(id).pos, ship.absPos(new Vector3())).normalize();
@@ -804,12 +814,15 @@ async function main(): Promise<void> {
     renderer.render(universe.scene, universe.camera);
     prof.gpu('Ship');
     renderer.clearDepth();
-    // alpha becomes a ship mask (0 = world, 1 = ship) so warp distortion only bends space outside the hull
-    gl.colorMask(false, false, false, true);
-    renderer.setClearColor(BLACK, 0);
-    renderer.clear(true, false, false);
-    gl.colorMask(true, true, true, true);
-    renderer.setClearColor(BLACK, 1);
+    // alpha becomes a ship mask (0 = world, 1 = ship) so warp distortion only bends space outside the hull.
+    // Only the warp composite reads it, and a masked clear rewrites the whole HDR buffer, so skip it otherwise.
+    if (Math.max(warp.intensity, warp.spool, warp.flash, warp.shake) > 0) {
+      gl.colorMask(false, false, false, true);
+      renderer.setClearColor(BLACK, 0);
+      renderer.clear(true, false, false);
+      gl.colorMask(true, true, true, true);
+      renderer.setClearColor(BLACK, 1);
+    }
     renderer.render(shipView.scene, rig.camera);
 
     // sun glare: fades out as the Sun leaves the frame (its glow still spills in from just outside) and
