@@ -4,6 +4,7 @@ import type { Ship } from '../ship/flight';
 import type { WarpDrive, WarpTarget } from '../game/warp';
 import { AU_KM, WARP_FACTORS, type WarpFactor } from '../sim/constants';
 import { fmtDistance, fmtDuration } from './format';
+import { drawBody } from './bodyGlyph';
 
 const _a = new Vector3();
 const _b = new Vector3();
@@ -20,12 +21,6 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, html?: 
   if (cls) e.className = cls;
   if (html !== undefined) e.innerHTML = html;
   return e;
-}
-
-function rgb(c: [number, number, number], k = 1): string {
-  const m = Math.max(c[0], c[1], c[2]);
-  const f = (v: number) => Math.round(Math.min(1, Math.pow(v / m, 0.6) * k) * 255);
-  return `rgb(${f(c[0])},${f(c[1])},${f(c[2])})`;
 }
 
 /** Top-down solar system map (ecliptic plane) for choosing warp destinations. */
@@ -48,6 +43,7 @@ export class SystemMap {
   private dragDist = 0;
   private pinch0 = 0;
   private dpr = 1;
+  private lastTime = 0;
   onWarp?: (t: WarpTarget, factor: WarpFactor) => void;
   onSelect?: (t: WarpTarget) => void;
   onClose?: () => void;
@@ -55,12 +51,12 @@ export class SystemMap {
 
   constructor(private eph: Ephemeris, private ship: Ship, private warp: WarpDrive) {
     const top = el('div', 'map-top');
-    top.append(el('div', 'map-title', 'SOLAR SYSTEM <span>real scale · top-down ecliptic view</span>'));
+    top.append(el('div', 'map-title', 'SOLAR SYSTEM <span>true sizes and distances · top-down ecliptic view</span>'));
     const close = el('button', 'btn icon', '✕');
     close.title = 'Close map (M / Esc)';
     close.onclick = () => this.onClose?.();
     top.append(close);
-    const hint = el('div', 'map-hint', 'Scroll / pinch to zoom · drag to pan · click a body, or empty space to warp to coordinates');
+    const hint = el('div', 'map-hint', 'Scroll / pinch to zoom · drag to pan · click a body, or empty space to warp to coordinates · a ring marks a body too small to see at this zoom');
     this.root.append(this.canvas, top, this.list, this.info, hint);
     this.buildList();
     this.bindPointer();
@@ -94,7 +90,7 @@ export class SystemMap {
     const w = this.canvas.clientWidth || window.innerWidth;
     const h = this.canvas.clientHeight || window.innerHeight;
     let extent: number;
-    if (id === 'sun') extent = 32 * AU_KM;
+    if (id === 'sun') extent = Math.max(...s.children.map((c) => c.pos.length())) * 1.05;
     else if (s.children.length) extent = Math.max(...s.children.map((c) => c.pos.distanceTo(s.pos))) * 1.25;
     else extent = s.def.radius * 40;
     this.targetScale = (Math.min(w, h) * 0.45) / extent;
@@ -272,9 +268,12 @@ export class SystemMap {
     if (!t) return;
     const p = this.warp.resolve(_a, t);
     if (!p) return;
-    const d = p.distanceTo(this.ship.absPos(_b));
+    const ship = this.ship.absPos(_b);
+    // warp times are for the trip to the arrival point; the distance shown is to the body's centre
+    const d = p.distanceTo(ship);
+    const dc = t.kind === 'body' ? this.eph.get(t.id).pos.distanceTo(ship) : d;
     const dist = this.info.querySelector('.info-dist');
-    if (dist) dist.textContent = `Distance ${fmtDistance(d)} · light time ${fmtDuration(d / 299792.458)}`;
+    if (dist) dist.textContent = `Distance ${fmtDistance(dc)} · light time ${fmtDuration(dc / 299792.458)}`;
     this.info.querySelectorAll<HTMLButtonElement>('.chip').forEach((b) => {
       const f = Number(b.dataset.f);
       b.innerHTML = `<b>${f}c</b><span>${fmtDuration(d / (f * 299792.458))}</span>`;
@@ -295,7 +294,10 @@ export class SystemMap {
     const ctx = this.ctx;
     const dpr = this.dpr;
     const W = this.canvas.width / dpr, H = this.canvas.height / dpr;
-    this.scale *= Math.pow(this.targetScale / this.scale, 0.18);
+    // ease the zoom at the same pace whatever the frame rate
+    const dt = Math.min(Math.max(time - this.lastTime, 0), 1);
+    this.lastTime = time;
+    this.scale *= Math.pow(this.targetScale / this.scale, 1 - Math.pow(0.82, dt * 60));
     if (this.follow) this.center.copy(this.eph.get(this.follow).pos);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = '#02050a';
@@ -335,7 +337,7 @@ export class SystemMap {
       ctx.stroke();
     }
 
-    // bodies
+    // bodies, at true size and position
     this.hits = [];
     const labels: [number, number][] = [];
     ctx.textBaseline = 'middle';
@@ -343,43 +345,24 @@ export class SystemMap {
     const order = [...this.eph.list].sort((a, b) => a.depth - b.depth);
     for (const s of order) {
       if (s.parent && s.parent.def.id !== 'sun') {
+        // a moon whose orbit is under a few pixels would sit on top of its planet
         const pr = s.pos.distanceTo(s.parent.pos) * this.scale;
         if (pr < 7) continue;
       }
       const [x, y] = this.toScreen(s.pos);
-      if (x < -50 || y < -50 || x > W + 50 || y > H + 50) continue;
-      const rr = s.def.radius * this.scale;
-      const r = Math.max(rr, s.def.kind === 'star' ? 5 : s.depth === 1 ? 3.5 : 2.5);
-      if (s.def.kind === 'star') {
-        const g = ctx.createRadialGradient(x, y, 0, x, y, r * 4);
-        g.addColorStop(0, 'rgba(255,240,200,1)');
-        g.addColorStop(0.25, 'rgba(255,200,120,0.5)');
-        g.addColorStop(1, 'rgba(255,160,60,0)');
-        ctx.fillStyle = g;
-        ctx.beginPath();
-        ctx.arc(x, y, r * 4, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.fillStyle = rgb(s.def.color, 1.05);
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.fill();
-      if (s.def.rings && rr > 2) {
-        ctx.strokeStyle = 'rgba(230,210,170,0.6)';
-        ctx.beginPath();
-        ctx.ellipse(x, y, s.def.rings.outer * this.scale, s.def.rings.outer * this.scale * 0.35, 0, 0, Math.PI * 2);
-        ctx.stroke();
-      }
+      const reach = (s.def.rings?.outer ?? s.def.radius) * this.scale + 50;
+      if (x < -reach || y < -reach || x > W + reach || y > H + reach) continue;
+      const r = drawBody(ctx, s, x, y, this.scale, { sun });
       this.hits.push({ state: s, x, y, r });
       if (!labels.some(([lx, ly]) => Math.abs(lx - x) < 60 && Math.abs(ly - y) < 14)) {
         labels.push([x, y]);
         ctx.fillStyle = s.depth <= 1 ? 'rgba(220,235,255,0.9)' : 'rgba(180,200,225,0.7)';
         ctx.font = `${s.depth <= 1 ? 600 : 500} ${s.depth <= 1 ? 13 : 11}px system-ui, sans-serif`;
-        ctx.fillText(s.def.name, x + r + 5, y);
+        ctx.fillText(s.def.name, Math.min(x + r + 5, W - 60), y);
       }
     }
 
-    // target
+    // target: a ring on the body itself, the route to the arrival point beside it
     const shipAbs = this.ship.absPos(_b);
     const [shx, shy] = this.toScreen(shipAbs);
     const sel = this.selection;
@@ -388,6 +371,7 @@ export class SystemMap {
       if (p) {
         const [tx, ty] = this.toScreen(p);
         ctx.strokeStyle = 'rgba(255,179,71,0.9)';
+        ctx.lineWidth = 1;
         ctx.setLineDash([6, 6]);
         ctx.lineDashOffset = -time * 20;
         ctx.beginPath();
@@ -395,11 +379,23 @@ export class SystemMap {
         ctx.lineTo(tx, ty);
         ctx.stroke();
         ctx.setLineDash([]);
-        const pulse = 9 + Math.sin(time * 4) * 2;
-        ctx.beginPath();
-        ctx.arc(tx, ty, pulse, 0, Math.PI * 2);
-        ctx.stroke();
-        if (sel.kind === 'point') {
+        const pulse = Math.sin(time * 4) * 2;
+        let cross = true;
+        if (sel.kind === 'body') {
+          const b = this.eph.get(sel.id);
+          const [bx, by] = this.toScreen(b.pos);
+          const br = Math.max((b.def.rings?.outer ?? b.def.radius) * this.scale, 4);
+          ctx.beginPath();
+          ctx.arc(bx, by, br + 6 + pulse, 0, Math.PI * 2);
+          ctx.stroke();
+          // mark the arrival point once it separates from the body's ring
+          cross = Math.hypot(tx - bx, ty - by) > br + 14;
+        } else {
+          ctx.beginPath();
+          ctx.arc(tx, ty, 9 + pulse, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        if (cross) {
           ctx.beginPath();
           ctx.moveTo(tx - 5, ty);
           ctx.lineTo(tx + 5, ty);
@@ -414,17 +410,24 @@ export class SystemMap {
     ctx.save();
     ctx.translate(shx, shy);
     ctx.rotate(Math.atan2(f.z, f.x));
+    // outlined so the body underneath stays visible; the dot is the ship's exact position
+    ctx.strokeStyle = '#ffffff';
     ctx.fillStyle = '#ffffff';
+    ctx.lineWidth = 1.5;
     ctx.shadowColor = '#5fd4ff';
-    ctx.shadowBlur = 8;
+    ctx.shadowBlur = 6;
     ctx.beginPath();
     ctx.moveTo(10, 0);
     ctx.lineTo(-7, 6);
     ctx.lineTo(-3, 0);
     ctx.lineTo(-7, -6);
     ctx.closePath();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(0, 0, 1.5, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
+    ctx.lineWidth = 1;
     ctx.fillStyle = '#ffffff';
     ctx.font = '600 11px system-ui, sans-serif';
     ctx.fillText('YOU', shx + 10, shy + 12);
