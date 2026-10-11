@@ -9,6 +9,50 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    version: '0.19',
+    date: '2026-10-11',
+    title: 'True-scale maps',
+    notes: [
+      'Planets, moons and the Sun are drawn at their true size and tilt on the map, with Saturn\'s rings to scale.',
+      'The target ring sits exactly on the body, and the warp arrival point is marked separately.',
+      'Orbit lines no longer show a doubled seam, and the Sun view fits out to Pluto.',
+    ],
+  },
+  {
+    version: '0.18',
+    date: '2026-10-11',
+    title: 'Better touch flight',
+    notes: [
+      'Look around with one finger while the other thumb steers, and double-tap to look ahead again.',
+      'Boost and brake buttons beside the throttle, which now shows its percentage.',
+      'Finer aiming with the stick, and clearer menus that close after a choice.',
+    ],
+  },
+  {
+    version: '0.17',
+    date: '2026-10-11',
+    title: 'Faster frames',
+    notes: ['The final image, ship shadows and ship lighting cost less, especially on high and ultra.'],
+  },
+  {
+    version: '0.16',
+    date: '2026-10-11',
+    title: 'Hull fix',
+    notes: ['Fixed the inside-out hull that let the interior show through, and the pilot is visible again through the canopy.'],
+  },
+  {
+    version: '0.15',
+    date: '2026-10-11',
+    title: 'Frame cost breakdown',
+    notes: ['Under the FPS counter, a breakdown of what each part of the frame costs, plus the GPU and quality details. Click the FPS readout to hide it.'],
+  },
+  {
+    version: '0.14',
+    date: '2026-10-11',
+    title: 'Scanner minimap',
+    notes: ['A small 3D scanner in the HUD shows the Sun, planets, nearby moons and the warp target around the ship. Click it to open the map, or press N to hide it.'],
+  },
+  {
     version: '0.13',
     date: '2026-10-11',
     title: 'Patch notes',
