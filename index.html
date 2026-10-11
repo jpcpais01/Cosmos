@@ -14,21 +14,32 @@
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
   </head>
   <body>
     <canvas id="scene"></canvas>
     <div id="ui"></div>
     <div id="fade"></div>
     <div id="loading">
+      <canvas id="load-stars" aria-hidden="true"></canvas>
+      <div class="load-planet" aria-hidden="true"></div>
       <div class="load-inner">
-        <div class="logo">COSMOS</div>
-        <div class="tagline">A real-scale Solar System</div>
-        <div class="load-track"><div id="load-bar"></div></div>
-        <div id="load-text">Starting…</div>
-        <button id="start" class="btn primary hidden">LAUNCH</button>
-        <div class="load-foot">Real planet maps · 112,000 Hipparcos stars · live ephemerides</div>
+        <h1 class="logo">COSMOS</h1>
+        <div class="tagline">The Solar System, to scale</div>
+        <div class="load-slot">
+          <div class="load-progress">
+            <div class="load-track"><div id="load-bar"></div></div>
+            <div id="load-text">Starting</div>
+          </div>
+          <button id="start" class="launch hidden">Launch</button>
+        </div>
+        <div class="load-rotate">Turn your phone sideways to fly</div>
       </div>
+      <div class="load-foot">Real planet maps · 112,699 stars · Live positions</div>
+    </div>
+    <div id="rotate" aria-hidden="true">
+      <div class="rot-phone"></div>
+      <div class="rot-text">Rotate your phone to fly</div>
     </div>
     <noscript>Cosmos needs JavaScript and WebGL 2.</noscript>
     <script type="module" src="/src/main.ts"></script>

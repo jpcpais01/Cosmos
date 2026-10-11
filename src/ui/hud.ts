@@ -112,6 +112,7 @@ const ICONS = {
   help: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.5" fill="none"/><path d="M9.5 9.3a2.6 2.6 0 1 1 3.6 2.4c-.8.4-1.1 1-1.1 1.8v.6" fill="none"/><circle cx="12" cy="17.3" r=".9"/></svg>',
   refresh: '<svg viewBox="0 0 24 24"><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3" fill="none"/><path d="M18.5 3.5v4h-4" fill="none"/></svg>',
   full: '<svg viewBox="0 0 24 24"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" fill="none"/></svg>',
+  more: '<svg viewBox="0 0 24 24"><circle cx="5.5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="18.5" cy="12" r="1.6"/></svg>',
 };
 
 /** DOM heads-up display, menus and touch controls. */
@@ -145,6 +146,8 @@ export class Hud {
   readonly helpPanel = el('div', 'panel modal hidden');
   private soundBtn: HTMLButtonElement;
   private updateBtn: HTMLButtonElement;
+  private moreBtn: HTMLButtonElement;
+  private factorCycle: HTMLButtonElement;
   private labelsBtn: HTMLButtonElement;
   private fpsCheck?: HTMLInputElement;
   readonly touch = el('div', 'touch hidden');
@@ -171,16 +174,24 @@ export class Hud {
     this.soundBtn = btn(ICONS.sound, 'Sound on/off', () => this.toggle('sound'), 'btn icon');
     this.labelsBtn = btn(ICONS.tag, 'Labels on/off (T)', () => this.toggle('labels'), 'btn icon');
     this.updateBtn = btn(ICONS.refresh, 'Update and reload the app', () => actions.refreshApp(), 'btn icon');
-    tr.append(
-      btn(ICONS.map, 'Solar system map (M)', () => actions.toggleMap(), 'btn icon'),
-      btn(ICONS.pin, 'Saved locations (L)', () => this.showPanel(this.locPanel), 'btn icon'),
-      btn(ICONS.eye, 'Change view (V)', () => actions.cycleView(), 'btn icon'),
+    // on touch screens the less used buttons fold into a menu behind the "more" button
+    const more = el('div', 'tr-more');
+    more.append(
       this.labelsBtn,
       this.soundBtn,
       btn(ICONS.gear, 'Settings', () => this.showPanel(this.settingsPanel), 'btn icon'),
       btn(ICONS.help, 'Controls (H)', () => this.showPanel(this.helpPanel), 'btn icon'),
       this.updateBtn,
       btn(ICONS.full, 'Fullscreen (F)', () => actions.fullscreen(), 'btn icon'),
+    );
+    more.addEventListener('click', () => tr.classList.remove('open'));
+    this.moreBtn = btn(ICONS.more, 'More', () => tr.classList.toggle('open'), 'btn icon more');
+    tr.append(
+      btn(ICONS.map, 'Solar system map (M)', () => actions.toggleMap(), 'btn icon'),
+      btn(ICONS.pin, 'Saved locations (L)', () => this.showPanel(this.locPanel), 'btn icon'),
+      btn(ICONS.eye, 'Change view (V)', () => actions.cycleView(), 'btn icon'),
+      more,
+      this.moreBtn,
     );
 
     // bottom-centre: speed
@@ -205,7 +216,14 @@ export class Hud {
       if (this.lastState && this.lastState.warpState !== 'idle') actions.abort();
       else actions.engage();
     }, 'btn primary engage');
-    br.append(head, this.warpTarget, this.warpEta, factors, this.engageBtn);
+    // touch layout: one chip cycles the warp factor next to the engage button
+    this.factorCycle = btn('10c', 'Warp factor', () => {
+      const cur = this.lastState?.warpFactor ?? WARP_FACTORS[2];
+      actions.setFactor(WARP_FACTORS[(WARP_FACTORS.indexOf(cur) + 1) % WARP_FACTORS.length]);
+    }, 'btn factor-cycle');
+    const row = el('div', 'warp-row');
+    row.append(this.factorCycle, this.engageBtn);
+    br.append(head, this.warpTarget, this.warpEta, factors, row);
 
     this.marker.append(this.markerLabel);
     this.root.append(this.labelLayer, this.reticle, this.aimEl, this.marker, this.arrow, tl, tr, bc, br, this.status, this.toastEl);
@@ -400,37 +418,78 @@ export class Hud {
 
   private buildTouch(): void {
     if (!matchMedia('(pointer: coarse)').matches) return;
+    document.body.classList.add('touch-ui');
     this.touch.classList.remove('hidden');
+
+    // flight stick: touch anywhere in the lower left and the stick centres under your thumb
+    const zone = el('div', 'stick-zone');
     const pad = el('div', 'stick');
     const knob = el('div', 'knob');
     pad.append(knob);
+    zone.append(pad);
     let id: number | null = null;
+    let cx = 0;
+    let cy = 0;
+    const R = 58; // stick radius in CSS px
     const set = (e: PointerEvent) => {
-      const r = pad.getBoundingClientRect();
-      const x = ((e.clientX - r.left) / r.width) * 2 - 1;
-      const y = ((e.clientY - r.top) / r.height) * 2 - 1;
+      const x = (e.clientX - cx) / R;
+      const y = (e.clientY - cy) / R;
       const l = Math.max(1, Math.hypot(x, y));
       this.stick.x = x / l;
       this.stick.y = y / l;
-      knob.style.transform = `translate(${this.stick.x * 40}px, ${this.stick.y * 40}px)`;
+      knob.style.transform = `translate(${this.stick.x * (R - 22)}px, ${this.stick.y * (R - 22)}px)`;
     };
-    pad.addEventListener('pointerdown', (e) => {
+    zone.addEventListener('pointerdown', (e) => {
+      if (id !== null) return;
       id = e.pointerId;
-      pad.setPointerCapture(e.pointerId);
+      zone.setPointerCapture(e.pointerId);
+      const r = zone.getBoundingClientRect();
+      cx = Math.min(Math.max(e.clientX, r.left + R), r.right - R);
+      cy = Math.min(Math.max(e.clientY, r.top + R), r.bottom - R);
+      pad.style.left = `${cx - r.left - R}px`;
+      pad.style.top = `${cy - r.top - R}px`;
+      pad.classList.add('active');
       set(e);
     });
-    pad.addEventListener('pointermove', (e) => e.pointerId === id && set(e));
-    const end = () => {
+    zone.addEventListener('pointermove', (e) => e.pointerId === id && set(e));
+    const end = (e: PointerEvent) => {
+      if (e.pointerId !== id) return;
       id = null;
       this.stick.x = this.stick.y = 0;
       knob.style.transform = '';
+      pad.style.left = pad.style.top = '';
+      pad.classList.remove('active');
     };
-    pad.addEventListener('pointerup', end);
-    pad.addEventListener('pointercancel', end);
+    zone.addEventListener('pointerup', end);
+    zone.addEventListener('pointercancel', end);
 
+    // roll buttons, held down to roll
+    const rolls = el('div', 'troll');
+    const rl = el('button', 'btn roll', '<svg viewBox="0 0 24 24"><path d="M8 6.5A8 8 0 1 0 17.5 7" fill="none"/><path d="M8.5 2.5 8 6.5l4 .8" fill="none"/></svg>');
+    const rr = el('button', 'btn roll', '<svg viewBox="0 0 24 24"><path d="M16 6.5A8 8 0 1 1 6.5 7" fill="none"/><path d="M15.5 2.5 16 6.5l-4 .8" fill="none"/></svg>');
+    rl.title = 'Roll left';
+    rr.title = 'Roll right';
+    for (const [b, v] of [[rl, 1], [rr, -1]] as const) {
+      b.addEventListener('pointerdown', (e) => {
+        b.setPointerCapture(e.pointerId);
+        this.touchRoll = v;
+        b.classList.add('on');
+      });
+      const stop = () => {
+        this.touchRoll = 0;
+        b.classList.remove('on');
+      };
+      b.addEventListener('pointerup', stop);
+      b.addEventListener('pointercancel', stop);
+    }
+    rolls.append(rl, rr);
+
+    // throttle: a tall slider for the right thumb
     const thr = el('div', 'tthr');
     const fill = el('div', 'tthr-fill');
-    thr.append(fill);
+    const mark = el('div', 'tthr-label', 'THR');
+    thr.append(fill, mark);
+    let tid: number | null = null;
     const setT = (e: PointerEvent) => {
       const r = thr.getBoundingClientRect();
       const v = Math.min(1, Math.max(0, 1 - (e.clientY - r.top) / r.height));
@@ -438,20 +497,15 @@ export class Hud {
       fill.style.height = `${v * 100}%`;
     };
     thr.addEventListener('pointerdown', (e) => {
+      tid = e.pointerId;
       thr.setPointerCapture(e.pointerId);
       setT(e);
     });
-    thr.addEventListener('pointermove', (e) => e.buttons && setT(e));
-    const rolls = el('div', 'troll');
-    const rl = el('button', 'btn small', '⟲');
-    const rr = el('button', 'btn small', '⟳');
-    for (const [b, v] of [[rl, 1], [rr, -1]] as const) {
-      b.addEventListener('pointerdown', () => (this.touchRoll = v));
-      b.addEventListener('pointerup', () => (this.touchRoll = 0));
-      b.addEventListener('pointerleave', () => (this.touchRoll = 0));
-    }
-    rolls.append(rl, rr);
-    this.touch.append(pad, rolls, thr);
+    thr.addEventListener('pointermove', (e) => e.pointerId === tid && setT(e));
+    const tend = (e: PointerEvent) => e.pointerId === tid && (tid = null);
+    thr.addEventListener('pointerup', tend);
+    thr.addEventListener('pointercancel', tend);
+    this.touch.append(zone, rolls, thr);
   }
 
   /** Called when the throttle is changed by other inputs so the touch slider follows. */
@@ -464,6 +518,7 @@ export class Hud {
   setUpdateReady(): void {
     if (this.updateBtn.classList.contains('ready')) return;
     this.updateBtn.classList.add('ready');
+    this.moreBtn.classList.add('ready');
     this.updateBtn.title = 'A new version is ready: click to load it';
     this.toast('A new version of Cosmos is ready. Use the glowing update button to load it.', 6000);
   }
@@ -487,12 +542,14 @@ export class Hud {
     this.dateEl.textContent = fmtDate(s.simMs);
     this.scaleEl.textContent = s.timeScale === 0 ? 'PAUSED' : s.timeScale === 1 ? 'REAL TIME' : `×${s.timeScale.toLocaleString('en-US')}`;
     for (const [f, b] of this.factorBtns) b.classList.toggle('on', f === s.warpFactor);
+    const fl = `${s.warpFactor}c`;
+    if (this.factorCycle.textContent !== fl) this.factorCycle.textContent = fl;
     if (s.targetName) {
       this.warpTarget.textContent = s.targetName;
       this.warpEta.textContent = `${fmtDistance(s.targetDistance)} · ETA ${fmtDuration(s.targetEta)}`;
     } else {
       this.warpTarget.textContent = 'No destination';
-      this.warpEta.textContent = 'Open the map (M) to choose one';
+      this.warpEta.textContent = document.body.classList.contains('touch-ui') ? 'Open the map to choose one' : 'Open the map (M) to choose one';
     }
     const active = s.warpState !== 'idle';
     this.engageBtn.textContent = active ? (s.warpState === 'cruise' ? 'DROP OUT' : 'ABORT') : 'ENGAGE';
