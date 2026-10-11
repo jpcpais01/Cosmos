@@ -742,6 +742,10 @@ async function main(): Promise<void> {
     });
     updateMarkers(tp);
     hud.setReticle(!cockpit && !map.open);
+    if (input.pointerLocked && !map.open && ship.aim.lengthSq() > 1e-8) {
+      const focal = (cssH / 2) / Math.tan(MathUtils.degToRad(rig.camera.fov) / 2);
+      hud.setAim({ x: -Math.tan(ship.aim.x) * focal, y: -Math.tan(ship.aim.y) * focal });
+    } else hud.setAim(null);
     if (map.open) map.draw(simMs, t);
   };
 

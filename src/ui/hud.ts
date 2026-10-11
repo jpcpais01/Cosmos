@@ -136,6 +136,7 @@ export class Hud {
   private labels: HTMLDivElement[] = [];
   private labelLayer = el('div', 'labels');
   private reticle = el('div', 'reticle');
+  private aimEl = el('div', 'aim hidden');
   readonly locPanel = el('div', 'panel modal hidden');
   readonly settingsPanel = el('div', 'panel modal hidden');
   readonly helpPanel = el('div', 'panel modal hidden');
@@ -201,7 +202,7 @@ export class Hud {
     br.append(head, this.warpTarget, this.warpEta, factors, this.engageBtn);
 
     this.marker.append(this.markerLabel);
-    this.root.append(this.labelLayer, this.reticle, this.marker, this.arrow, tl, tr, bc, br, this.status, this.toastEl);
+    this.root.append(this.labelLayer, this.reticle, this.aimEl, this.marker, this.arrow, tl, tr, bc, br, this.status, this.toastEl);
     this.buildSettings();
     this.buildHelp();
     this.buildTouch();
@@ -358,7 +359,7 @@ export class Hud {
       ['Q / E', 'Roll'],
       ['Shift', 'Boost'],
       ['X', 'Brake (throttle to zero)'],
-      ['Right-click', 'Mouse flight (pointer lock) · Esc to release'],
+      ['Right-click', 'Mouse flight: the ship smoothly follows the cursor · Esc to release'],
       ['Left-drag', 'Look around (cockpit) / orbit camera (outside)'],
       ['V', 'Cockpit → chase → far chase view'],
       ['M', 'Solar system map: pick a body or any coordinates'],
@@ -526,5 +527,15 @@ export class Hud {
 
   setReticle(show: boolean): void {
     this.reticle.style.display = show ? '' : 'none';
+  }
+
+  /** Mouse-flight aim point, as a CSS pixel offset from the screen centre (null hides it). */
+  setAim(off: { x: number; y: number } | null): void {
+    if (!off) {
+      this.aimEl.classList.add('hidden');
+      return;
+    }
+    this.aimEl.classList.remove('hidden');
+    this.aimEl.style.transform = `translate(${off.x}px, ${off.y}px)`;
   }
 }

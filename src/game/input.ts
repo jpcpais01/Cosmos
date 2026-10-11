@@ -109,6 +109,7 @@ export class Input {
       roll: k('KeyQ') - k('KeyE'),
       mousePitch: -this.mdy * this.sensitivity * inv,
       mouseYaw: -this.mdx * this.sensitivity,
+      mouseFlight: this.pointerLocked,
       throttleDelta: (k('KeyW') - k('KeyS')) * 0.45,
       boost: this.keys.has('ShiftLeft') || this.keys.has('ShiftRight'),
       brake: this.keys.has('KeyX'),
