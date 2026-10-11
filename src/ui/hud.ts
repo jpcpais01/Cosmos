@@ -163,6 +163,8 @@ export class Hud {
   private fpsEl = el('div', 'fps');
   private fpsLine = el('div', 'fps-line');
   private perfEl = el('div', 'perf');
+  /** On touch screens the breakdown would cover the flight controls: it starts closed every session. */
+  private perfTouchOpen = false;
   private warpTarget = el('div', 'warp-target');
   private warpEta = el('div', 'warp-eta');
   private factorBtns = new Map<WarpFactor, HTMLButtonElement>();
@@ -211,11 +213,13 @@ export class Hud {
     this.fpsEl.append(this.fpsLine, this.perfEl);
     this.fpsEl.title = 'Click to show or hide the cost breakdown';
     this.fpsEl.onclick = () => {
-      this.settings.perf = !this.settings.perf;
-      this.perfEl.style.display = this.settings.perf ? '' : 'none';
+      if (this.isTouch) {
+        this.perfTouchOpen = !this.perfVisible;
+        if (this.perfTouchOpen) this.settings.perf = true;
+      } else this.settings.perf = !this.settings.perf;
+      this.refreshPerf();
       saveSettings(this.settings);
     };
-    this.perfEl.style.display = this.settings.perf ? '' : 'none';
     tl.append(this.locName, this.locSub, this.dateEl, timeRow, this.fpsEl);
 
     // top-right toolbar
@@ -293,6 +297,7 @@ export class Hud {
     this.buildHelp();
     this.buildTouch();
     this.root.append(this.locPanel, this.settingsPanel, this.helpPanel, this.touch);
+    this.refreshPerf();
     this.refreshToggles();
   }
 
@@ -442,7 +447,8 @@ export class Hud {
     perf.checked = s.perf;
     perf.onchange = () => {
       s.perf = perf.checked;
-      this.perfEl.style.display = s.perf ? '' : 'none';
+      this.perfTouchOpen = s.perf;
+      this.refreshPerf();
       this.commit();
     };
     row('Show cost breakdown under FPS', perf);
@@ -678,7 +684,20 @@ export class Hud {
     this.fpsLine.textContent = `${Math.round(fps)} FPS · ${ms.toFixed(1)} ms${res}`;
     this.fpsEl.classList.toggle('warn', fps < 50 && fps >= 28);
     this.fpsEl.classList.toggle('bad', fps < 28);
-    if (perf && this.settings.perf) this.perfEl.innerHTML = this.perfHtml(perf, ms);
+    if (perf && this.perfVisible) this.perfEl.innerHTML = this.perfHtml(perf, ms);
+  }
+
+  private get isTouch(): boolean {
+    return document.body.classList.contains('touch-ui');
+  }
+
+  /** Whether the cost breakdown is on screen (and so worth measuring). */
+  get perfVisible(): boolean {
+    return this.settings.fps && this.settings.perf && (!this.isTouch || this.perfTouchOpen);
+  }
+
+  private refreshPerf(): void {
+    this.perfEl.style.display = this.perfVisible ? '' : 'none';
   }
 
   private perfHtml(p: PerfInfo, frameMs: number): string {
