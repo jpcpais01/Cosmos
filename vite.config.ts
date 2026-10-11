@@ -51,7 +51,7 @@ export default defineConfig({
             handler: 'CacheFirst',
             options: {
               cacheName: 'cosmos-textures',
-              expiration: { maxEntries: 160, maxAgeSeconds: 60 * 60 * 24 * 120 },
+              expiration: { maxEntries: 1500, maxAgeSeconds: 60 * 60 * 24 * 120 },
               cacheableResponse: { statuses: [0, 200] },
             },
           },

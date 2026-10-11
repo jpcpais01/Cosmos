@@ -3,9 +3,11 @@ import {
   RGBAFormat, SRGBColorSpace, Texture, UnsignedByteType, type WebGLRenderer,
 } from 'three';
 import manifest from '../data/textures.json';
+import { TileCache, TileWindow } from './tiles';
 
-type Kind = 'map' | 'normal' | 'aux';
-const MANIFEST = manifest as Record<string, Partial<Record<Kind, number[]>>>;
+export type Kind = 'map' | 'normal' | 'aux';
+type BodyManifest = Partial<Record<Kind, number[]>> & { tiles?: Partial<Record<Kind, number[]>> };
+const MANIFEST = manifest as Record<string, BodyManifest>;
 
 interface Entry {
   tex?: Texture;
@@ -19,6 +21,8 @@ const BASE = import.meta.env.BASE_URL;
 /** Streams equirectangular texture tiers: low tier always resident, higher tiers on demand. */
 export class TextureStreamer {
   private cache = new Map<string, Entry>();
+  private tileCache = new TileCache();
+  private windows = new Map<string, TileWindow>();
   private loader = new ImageBitmapLoader();
   private inflight = 0;
   private queue: (() => void)[] = [];
@@ -34,6 +38,25 @@ export class TextureStreamer {
 
   sizes(body: string, kind: Kind): number[] {
     return (MANIFEST[body]?.[kind] ?? []).filter((w) => w <= this.maxWidth);
+  }
+
+  /**
+   * Full-globe widths available as tiles (for the visible-area window). A window costs the same
+   * whatever its level, so even the lowest quality setting gets 4K detail close to a surface.
+   */
+  tileLevels(body: string, kind: Kind): number[] {
+    return (MANIFEST[body]?.tiles?.[kind] ?? []).filter((w) => w <= Math.max(this.maxWidth, 4096));
+  }
+
+  /** The visible-area tile window of a body's map (created on first use). */
+  window(body: string, kind: Kind): TileWindow {
+    const key = `${body}/${kind}`;
+    let w = this.windows.get(key);
+    if (!w) {
+      w = new TileWindow(this.renderer, this.tileCache, body, kind, kind === 'map');
+      this.windows.set(key, w);
+    }
+    return w;
   }
 
   has(body: string, kind: Kind): boolean {
@@ -122,8 +145,9 @@ export class TextureStreamer {
     while (this.queue.length && this.inflight < 2) this.queue.shift()!();
   }
 
-  /** Frees large tiers that have not been used for a while. */
+  /** Frees large tiers and tile windows that have not been used for a while. */
   evict(now: number, idleMs = 15000): void {
+    for (const w of this.windows.values()) if (w.active && now - w.lastUsed > idleMs / 3) w.release();
     for (const [key, e] of this.cache) {
       if (!e.tex || e.width <= 2048) continue;
       if (now - e.lastUsed > idleMs) {
