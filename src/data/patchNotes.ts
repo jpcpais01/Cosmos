@@ -11,6 +11,15 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     date: '2026-10-11',
+    title: 'A cleaner, shakier warp',
+    notes: [
+      'The warp tunnel is silver and white now. Its only colour is the red and blue fringing of chromatic aberration, which grows with speed.',
+      'The view shakes during warp with a smooth sway, bursts of rumble and the odd soft jolt, stronger at higher warp factors.',
+      'The warp costs the graphics card no more than before.',
+    ],
+  },
+  {
+    date: '2026-10-11',
     title: 'Lighter on the processor',
     notes: [
       'The HUD only rewrites text that changed, and the scanner no longer forces the page to re-measure its layout 30 times a second.',

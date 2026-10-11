@@ -747,7 +747,8 @@ async function main(): Promise<void> {
     // camera
     const look = map.open ? ([0, 0] as [number, number]) : input.consumeLook();
     if (input.consumeRecenter()) rig.resetLook();
-    rig.update(dt, ship.quat, look, input.dragging, warp.intensity, warp.shake, t);
+    const warpRumble = warp.intensity * (0.3 + 0.7 * Math.log(warp.factor) / Math.log(100)) + warp.spool * 0.25;
+    rig.update(dt, ship.quat, look, input.dragging, warp.intensity, warp.shake, t, warpRumble);
     ship.absPos(camAbs).addScaledVector(rig.offset, 0.001);
     camQ.copy(rig.quat);
 
@@ -837,7 +838,7 @@ async function main(): Promise<void> {
     if (warp.state !== 'idle' && prevWarpState === 'idle') warpSeed = Math.random();
     prevWarpState = warp.state;
     const flick = 1 + fNorm * (0.5 * Math.sin(t * 7.3 + warpSeed * 20) * Math.sin(t * 3.1 + warpSeed * 9) + 2.5 * Math.max(0, Math.sin(t * 17 + warpSeed * 40)) ** 12);
-    shipView.warpLight.color.setHSL(0.6 + fNorm * 0.22 * Math.sin(t * 0.9 + warpSeed * 30), 0.55 + 0.35 * fNorm, 0.7);
+    shipView.warpLight.color.setHSL(0.6, 0.12, 0.75);
     shipView.warpLight.intensity = (warp.intensity * 8 + warp.spool * 6 + warp.flash * 20) * flick * (cockpit ? 0.8 : 1) * eg;
     prof.cpu('Ship & lighting');
     mfd.update(dt, simMs, cockpit);

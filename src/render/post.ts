@@ -90,7 +90,6 @@ uniform float uWarp;      // tunnel strength 0..1
 uniform float uWarpSpeed; // how fast the trails flow out of the apex
 uniform float uFlash;
 uniform float uBubble;    // lens distortion of the warp bubble
-uniform float uShake;
 uniform float uSpool;     // warp drive charging 0..1
 uniform float uRays;      // god-ray strength 0..1
 uniform float uChaos;     // 0 at 1c .. 1 at 100c: how extreme and erratic the warp gets
@@ -192,11 +191,18 @@ void main() {
   gl_FragColor = finish(col);
 }
 #else
+// three octaves of fbm3, rescaled to match the four-octave range: the warp fields don't need the finest one
+float fbm3w(vec3 p) {
+  float s = 0.5 * vnoise3(p);
+  p = p * 2.03 + 17.1;
+  s += 0.25 * vnoise3(p);
+  p = p * 2.03 + 17.1;
+  s += 0.125 * vnoise3(p);
+  return s * 1.0714;
+}
 void main() {
   vec2 uv = vUv;
   vec2 aspect = vec2(uResolution.x / uResolution.y, 1.0);
-  // camera shake (warp entry)
-  uv += uShake * 0.004 * vec2(sin(uTime * 61.0) + sin(uTime * 23.0), cos(uTime * 47.0) + sin(uTime * 31.0));
   // warp bubble lensing: radial compression toward the apex with a refractive ring
   float hull = texture(uScene, uv).a; // 1 where the ship was drawn
   float space = 1.0 - clamp(hull, 0.0, 1.0);
@@ -220,8 +226,8 @@ void main() {
     // space itself ripples: noisy waves running out of the apex, sheared sideways by a second noise field
     float flow = uTime * uWarpSpeed;
     vec3 so = vec3(uSeed * 61.0, uSeed * 23.0, 0.0);
-    n1 = fbm3(polar * (1.7 + uChaos * 1.5) + so + vec3(0.0, 0.0, lr * 1.3 - flow * 0.6));
-    veins = fbm3(polar * (4.0 + uChaos * 3.0) + so.yxz + vec3(5.2, 1.3, lr * 2.4 - flow * 0.8));
+    n1 = fbm3w(polar * (1.7 + uChaos * 1.5) + so + vec3(0.0, 0.0, lr * 1.3 - flow * 0.6));
+    veins = fbm3w(polar * (4.0 + uChaos * 3.0) + so.yxz + vec3(5.2, 1.3, lr * 2.4 - flow * 0.8));
     float ripple = sin(lr * (14.0 + 6.0 * uChaos) - uTime * (6.0 + uWarpSpeed * 4.0) + n1 * (7.0 + 4.0 * uChaos));
     vec2 disp = radial * (ripple * 0.009 + (n1 - 0.5) * 0.035) + tang * (veins - 0.5) * 0.04;
     // at high factors the tunnel also writhes: a lobed twist with a per-jump lobe count
@@ -259,8 +265,8 @@ void main() {
   // ripples racing out along the trails, their fronts warped by the same noise
   float trailRipple = 0.5 + 0.5 * sin(lr * (9.0 + 7.0 * uChaos) - uTime * (4.0 + 3.0 * uWarpSpeed) + n1 * (6.0 + 6.0 * uChaos));
   vec2 suv = uApex + lens / aspect;
-  // chromatic aberration grows with warp
-  float ca = uBubble * 0.006 * r * (1.0 + 2.5 * wild) * space + 0.0006 * dot(uv - 0.5, uv - 0.5);
+  // chromatic aberration is the warp's only colour: red and blue split apart radially, more with speed
+  float ca = uBubble * r * (0.004 + 0.008 * uChaos + 0.004 * wild) * space + 0.0006 * dot(uv - 0.5, uv - 0.5);
   vec2 cdir = normalize(dv + 1e-5) / aspect;
   vec3 scene;
   scene.r = texture(uScene, suv + cdir * ca).r;
@@ -271,33 +277,32 @@ void main() {
 
   float exposure = exposureNow();
   vec3 col = mix(scene, bloom, uBloomStrength) * exposure;
-  col *= 1.0 + haze * vec3(0.06, 0.09, 0.16);
+  col *= 1.0 + haze * 0.1;
 
   col += sunFlare(uv, aspect);
 
   // God rays: the glow of the scene smeared outward from the warp apex, broken into shafts
   if (uRays > 0.001) {
-    vec2 st = (uApex - suv) * (0.9 / 20.0);
-    vec2 p = suv;
+    // 12 taps from a per-pixel jittered start: the bloom is soft, so this matches 20 even steps
+    vec2 st = (uApex - suv) * (0.9 / 12.0);
+    vec2 p = suv + st * hash12(gl_FragCoord.xy);
     vec3 acc = vec3(0.0);
     float w = 1.0;
-    for (int i = 0; i < 20; i++) {
-      p += st;
+    for (int i = 0; i < 12; i++) {
       vec3 b = texture(uBloom, p).rgb * exposure;
       acc += b * smoothstep(0.6, 2.5, dot(b, vec3(0.2126, 0.7152, 0.0722))) * w;
-      w *= 0.9;
+      p += st;
+      w *= 0.84;
     }
-    acc /= 8.0;
+    acc = vec3(dot(acc, vec3(0.2126, 0.7152, 0.0722))) / 5.0;
     float shafts = vnoise3(wpolar * (9.0 + 9.0 * uChaos) + vec3(uSeed * 11.0, 0.0, lr * 0.7 - flowT * 0.35 + uTime * 0.6 * uChaos));
     shafts = (0.25 + 1.5 * pow(shafts, 2.5 - uChaos)) * (0.6 + 0.65 * trailRipple);
-    // flicker: steady at 1c, stuttering at 100c
-    float flick = mix(1.0, 0.35 + 1.4 * hash12(vec2(floor(uTime * 14.0), uSeed * 91.0)), uChaos * 0.7);
-    // light pouring out of the apex itself, drifting through colours at high factors
-    // (the hue varies periodically round the circle, so there is no seam where atan wraps on the left)
-    vec3 coreCol = mix(vec3(0.55, 0.75, 1.0), warpHue(uSeed + uTime * 0.07 + 0.25 * sin(ang + uSeed * 6.0)), uChaos * 0.55);
-    vec3 core = coreCol * pow(vnoise3(wpolar * 16.0 + vec3(3.0, 0.0, lr * 0.9 - flowT * 0.5)), 3.0) * (0.7 + 0.8 * wild) / (1.0 + r * 3.5);
+    // flicker: steady at 1c, a smooth restless pulse at 100c
+    float flick = mix(1.0, 1.0 + 0.55 * sin(uTime * 7.3 + uSeed * 20.0) * sin(uTime * 3.1 + uSeed * 9.0), uChaos * 0.7);
+    // white light pouring out of the apex itself
+    float core = pow(vnoise3(wpolar * 16.0 + vec3(3.0, 0.0, lr * 0.9 - flowT * 0.5)), 3.0) * (0.7 + 0.8 * wild) / (1.0 + r * 3.5);
     shafts *= flick;
-    col += (acc * vec3(0.8, 0.9, 1.0) * shafts * 0.3 + core * shafts) * uRays * smoothstep(0.0, 0.08, r) * space;
+    col += (acc * shafts * 0.3 + core * shafts) * uRays * smoothstep(0.0, 0.08, r) * space;
   }
 
   // Warp tunnel: sparse light streaks scrolling out of the apex (polar coordinates, log-radius)
@@ -309,21 +314,24 @@ void main() {
     col *= 1.0 - uWarp * space * clamp((0.7 * occl + 0.5 * horizon + 0.55 * edge * (0.5 + veins)) * (0.75 + 0.5 * wild), 0.0, 0.93);
     // flowing ribbons of light: noise stretched along the log-radius, scrolling outward and following the
     // morphing trail field, so the tunnel wall shimmers like rippling silk rather than a hail of dashes
+    // two layers at different speeds give the wall depth; the fine near layer is split into red, green and
+    // blue a little apart along the radius, the only colour in the tunnel (chromatic aberration)
     float z = lr * 0.55 - flowT * 0.45;
     float rib = vnoise3(wpolar * (6.0 + 4.0 * uChaos) + vec3(uSeed * 17.0, 0.0, z));
-    float rib2 = vnoise3(wpolar * (15.0 + 8.0 * uChaos) + vec3(0.0, uSeed * 29.0, z * 1.7 - uTime * 0.3));
-    float ribbons = pow(rib, 3.0) * 0.8 + pow(rib2, 4.0) * 0.6;
+    float cz = 0.02 + 0.04 * uChaos + 0.02 * wild;
+    vec3 z2 = vec3(lr - cz, lr, lr + cz) * 0.95 - flowT * 0.8 - uTime * 0.3;
+    vec3 rp = wpolar * (15.0 + 8.0 * uChaos) + vec3(0.0, uSeed * 29.0, 0.0);
+    vec3 rib2 = vec3(vnoise3(rp + vec3(0.0, 0.0, z2.x)), vnoise3(rp + vec3(0.0, 0.0, z2.y)), vnoise3(rp + vec3(0.0, 0.0, z2.z)));
+    vec3 ribbons = pow(rib, 3.0) * 0.8 + pow(rib2, vec3(4.0)) * 0.7;
     ribbons *= 0.55 + 0.9 * trailRipple;
     float mask = smoothstep(0.08, 0.6, r) * smoothstep(1.6, 0.5, r);
-    vec3 tint = mix(vec3(0.45, 0.65, 1.0), vec3(0.8, 0.72, 1.0), rib2);
-    tint = mix(tint, warpHue(uSeed + rib * 0.6 + uTime * 0.05) * 1.2, uChaos * 0.6 * rib);
-    vec3 tunnel = tint * ribbons * (0.75 + 0.75 * uChaos) * mask;
-    // glow of the warp bubble around the apex
-    tunnel += vec3(0.6, 0.8, 1.0) * 0.18 / (1.0 + r * r * 160.0);
+    vec3 tunnel = ribbons * (0.75 + 0.75 * uChaos) * mask;
+    // white glow of the warp bubble around the apex, its rim fringed
+    tunnel += 0.18 / (1.0 + r * r * 160.0 * vec3(1.0 - cz, 1.0, 1.0 + cz));
     col += tunnel * uWarp * 0.55 * space;
   }
   // entry / exit flash: bright at the apex, a soft veil elsewhere
-  col += vec3(0.75, 0.88, 1.0) * uFlash * (0.25 + 2.5 / (1.0 + r * r * 30.0)) * (space + 0.15 * inside);
+  col += uFlash * (0.25 + 2.5 / (1.0 + r * r * 30.0 * vec3(0.9, 1.0, 1.1))) * (space + 0.15 * inside);
 
   gl_FragColor = finish(col);
 }
@@ -516,7 +524,7 @@ export class PostPipeline {
         uBloomStrength: { value: 0.05 }, uTime: { value: 0 },
         uSunUv: { value: new Vector2() }, uSunOn: { value: 0 }, uSunPower: { value: 1 }, uSunRadius: { value: 0 },
         uApex: { value: new Vector2(0.5, 0.5) }, uWarp: { value: 0 }, uWarpSpeed: { value: 1 }, uFlash: { value: 0 },
-        uBubble: { value: 0 }, uShake: { value: 0 }, uSpool: { value: 0 }, uRays: { value: 0 }, uChaos: { value: 0 }, uSeed: { value: 0 },
+        uBubble: { value: 0 }, uSpool: { value: 0 }, uRays: { value: 0 }, uChaos: { value: 0 }, uSeed: { value: 0 },
       },
     });
     this.compWarp = new ShaderMaterial({
@@ -631,7 +639,6 @@ export class PostPipeline {
     u.uRays.value = p.rays;
     u.uChaos.value = p.chaos;
     u.uSeed.value = p.seed;
-    u.uShake.value = p.shake;
     this.profiler?.gpu(this.aa ? 'Final image + AA' : 'Final image');
     const warping = Math.max(p.warp, p.flash, p.bubble, p.spool, p.rays, p.shake) > 0.001;
     const comp = warping ? this.compWarp : this.comp;
