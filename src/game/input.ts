@@ -88,14 +88,15 @@ export class Input {
   }
 
   requestLock(): void {
-    if (this.pointerLocked || !this.canLock()) return;
+    if (document.pointerLockElement === this.el || !this.canLock()) return;
     // newer browsers return a promise that rejects on failure; pointerlockerror reports it
     const p = this.el.requestPointerLock?.() as unknown as Promise<void> | undefined;
     p?.catch?.(() => undefined);
   }
 
   toggleLock(): void {
-    if (this.pointerLocked) this.releaseLock();
+    // ask the document, not the flag: pointerlockchange can arrive a frame late
+    if (document.pointerLockElement === this.el) document.exitPointerLock();
     else this.requestLock();
   }
 
