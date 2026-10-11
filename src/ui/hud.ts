@@ -9,6 +9,7 @@ export interface Settings {
   invertY: boolean;
   sensitivity: number;
   labels: boolean;
+  fps: boolean;
   sound: boolean;
   volume: number;
 }
@@ -23,7 +24,7 @@ export function defaultQuality(): Quality {
 }
 
 export function loadSettings(): Settings {
-  const d: Settings = { quality: defaultQuality(), invertY: false, sensitivity: 1, labels: true, sound: true, volume: 0.7 };
+  const d: Settings = { quality: defaultQuality(), invertY: false, sensitivity: 1, labels: true, fps: true, sound: true, volume: 0.7 };
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (raw) return { ...d, ...(JSON.parse(raw) as Partial<Settings>) };
@@ -56,6 +57,7 @@ export interface HudActions {
   deleteLocation(id: string): void;
   settingsChanged(s: Settings): void;
   fullscreen(): void;
+  refreshApp(): void;
   clearTarget(): void;
 }
 
@@ -106,6 +108,7 @@ const ICONS = {
   sound: '<svg viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z" fill="none"/><path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a7.5 7.5 0 0 1 0 11" fill="none"/></svg>',
   gear: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2" fill="none"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1" fill="none"/></svg>',
   help: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.5" fill="none"/><path d="M9.5 9.3a2.6 2.6 0 1 1 3.6 2.4c-.8.4-1.1 1-1.1 1.8v.6" fill="none"/><circle cx="12" cy="17.3" r=".9"/></svg>',
+  refresh: '<svg viewBox="0 0 24 24"><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3" fill="none"/><path d="M18.5 3.5v4h-4" fill="none"/></svg>',
   full: '<svg viewBox="0 0 24 24"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" fill="none"/></svg>',
 };
 
@@ -119,6 +122,7 @@ export class Hud {
   private locSub = el('div', 'loc-sub');
   private dateEl = el('div', 'date');
   private scaleEl = el('div', 'tscale');
+  private fpsEl = el('div', 'fps');
   private warpTarget = el('div', 'warp-target');
   private warpEta = el('div', 'warp-eta');
   private factorBtns = new Map<WarpFactor, HTMLButtonElement>();
@@ -132,11 +136,13 @@ export class Hud {
   private labels: HTMLDivElement[] = [];
   private labelLayer = el('div', 'labels');
   private reticle = el('div', 'reticle');
+  private aimEl = el('div', 'aim hidden');
   readonly locPanel = el('div', 'panel modal hidden');
   readonly settingsPanel = el('div', 'panel modal hidden');
   readonly helpPanel = el('div', 'panel modal hidden');
   private soundBtn: HTMLButtonElement;
   private labelsBtn: HTMLButtonElement;
+  private fpsCheck?: HTMLInputElement;
   readonly touch = el('div', 'touch hidden');
   stick = { x: 0, y: 0 };
   touchThrottle: number | null = null;
@@ -154,7 +160,7 @@ export class Hud {
       btn('NOW', 'Back to the real current time', () => actions.timeNow(), 'btn small'),
       this.scaleEl,
     );
-    tl.append(this.locName, this.locSub, this.dateEl, timeRow);
+    tl.append(this.locName, this.locSub, this.dateEl, timeRow, this.fpsEl);
 
     // top-right toolbar
     const tr = el('div', 'hud-tr');
@@ -168,6 +174,7 @@ export class Hud {
       this.soundBtn,
       btn(ICONS.gear, 'Settings', () => this.showPanel(this.settingsPanel), 'btn icon'),
       btn(ICONS.help, 'Controls (H)', () => this.showPanel(this.helpPanel), 'btn icon'),
+      btn(ICONS.refresh, 'Update and reload the app', () => actions.refreshApp(), 'btn icon'),
       btn(ICONS.full, 'Fullscreen (F)', () => actions.fullscreen(), 'btn icon'),
     );
 
@@ -195,7 +202,7 @@ export class Hud {
     br.append(head, this.warpTarget, this.warpEta, factors, this.engageBtn);
 
     this.marker.append(this.markerLabel);
-    this.root.append(this.labelLayer, this.reticle, this.marker, this.arrow, tl, tr, bc, br, this.status, this.toastEl);
+    this.root.append(this.labelLayer, this.reticle, this.aimEl, this.marker, this.arrow, tl, tr, bc, br, this.status, this.toastEl);
     this.buildSettings();
     this.buildHelp();
     this.buildTouch();
@@ -203,7 +210,7 @@ export class Hud {
     this.refreshToggles();
   }
 
-  private toggle(k: 'sound' | 'labels'): void {
+  toggle(k: 'sound' | 'labels' | 'fps'): void {
     this.settings[k] = !this.settings[k];
     this.refreshToggles();
     saveSettings(this.settings);
@@ -214,6 +221,8 @@ export class Hud {
     this.soundBtn.classList.toggle('off', !this.settings.sound);
     this.labelsBtn.classList.toggle('off', !this.settings.labels);
     this.labelLayer.style.display = this.settings.labels ? '' : 'none';
+    this.fpsEl.style.display = this.settings.fps ? '' : 'none';
+    if (this.fpsCheck) this.fpsCheck.checked = this.settings.fps;
   }
 
   showPanel(p: HTMLElement): void {
@@ -314,6 +323,12 @@ export class Hud {
       this.commit();
     };
     row('Invert pitch', inv);
+    const fps = el('input');
+    fps.type = 'checkbox';
+    fps.checked = s.fps;
+    fps.onchange = () => this.toggle('fps');
+    this.fpsCheck = fps;
+    row('Show FPS counter', fps);
     const vol = el('input');
     vol.type = 'range';
     vol.min = '0';
@@ -344,7 +359,7 @@ export class Hud {
       ['Q / E', 'Roll'],
       ['Shift', 'Boost'],
       ['X', 'Brake (throttle to zero)'],
-      ['Right-click', 'Mouse flight (pointer lock) · Esc to release'],
+      ['Right-click', 'Mouse flight: the ship smoothly follows the cursor · Esc to release'],
       ['Left-drag', 'Look around (cockpit) / orbit camera (outside)'],
       ['V', 'Cockpit → chase → far chase view'],
       ['M', 'Solar system map: pick a body or any coordinates'],
@@ -352,6 +367,7 @@ export class Hud {
       ['J', 'Engage warp / drop out'],
       ['L', 'Saved locations'],
       ['T', 'Toggle labels'],
+      ['G', 'Toggle the FPS counter'],
       [', / . / P', 'Slower / faster / pause time'],
       ['F', 'Fullscreen'],
       ['H', 'This help'],
@@ -463,6 +479,15 @@ export class Hud {
     this.status.classList.toggle('show', !!st);
   }
 
+  /** Frame-rate readout: frames per second, mean frame time and the dynamic render scale. */
+  setFps(fps: number, ms: number, renderScale: number): void {
+    if (!this.settings.fps) return;
+    const res = renderScale < 0.999 ? ` · RES ${Math.round(renderScale * 100)}%` : '';
+    this.fpsEl.textContent = `${Math.round(fps)} FPS · ${ms.toFixed(1)} ms${res}`;
+    this.fpsEl.classList.toggle('warn', fps < 50 && fps >= 28);
+    this.fpsEl.classList.toggle('bad', fps < 28);
+  }
+
   /** Positions the target bracket; x/y in CSS px, or null when off-screen with an edge angle. */
   setMarker(vis: { x: number; y: number; r: number } | null, edge: { x: number; y: number; ang: number } | null, label: string): void {
     if (vis) {
@@ -502,5 +527,15 @@ export class Hud {
 
   setReticle(show: boolean): void {
     this.reticle.style.display = show ? '' : 'none';
+  }
+
+  /** Mouse-flight aim point, as a CSS pixel offset from the screen centre (null hides it). */
+  setAim(off: { x: number; y: number } | null): void {
+    if (!off) {
+      this.aimEl.classList.add('hidden');
+      return;
+    }
+    this.aimEl.classList.remove('hidden');
+    this.aimEl.style.transform = `translate(${off.x}px, ${off.y}px)`;
   }
 }

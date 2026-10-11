@@ -105,7 +105,9 @@ async function main(): Promise<void> {
   const renderer = new WebGLRenderer({ canvas, antialias: false, alpha: false, stencil: false, powerPreference: 'high-performance' });
   renderer.autoClear = false;
   renderer.toneMapping = NoToneMapping;
-  renderer.setClearColor(new Color(0, 0, 0), 1);
+  const BLACK = new Color(0, 0, 0);
+  renderer.setClearColor(BLACK, 1);
+  const gl = renderer.getContext();
 
   // --- simulation
   let simMs = Date.now();
@@ -236,6 +238,35 @@ async function main(): Promise<void> {
     }
   };
 
+  /** Checks for a new version, lets a new service worker take over, then reloads. */
+  let refreshing = false;
+  const refreshApp = async () => {
+    if (refreshing) return;
+    refreshing = true;
+    hud.toast('Checking for updates…', 8000);
+    try {
+      const reg = await navigator.serviceWorker?.getRegistration();
+      if (reg) {
+        await reg.update();
+        const next = reg.installing ?? reg.waiting;
+        if (next) {
+          hud.toast('Updating…', 8000);
+          // the worker skips waiting by itself; wait until it controls the page (or give up after a while)
+          await new Promise<void>((resolve) => {
+            const done = () => resolve();
+            navigator.serviceWorker.addEventListener('controllerchange', done, { once: true });
+            next.addEventListener('statechange', () => next.state === 'activated' && done());
+            next.postMessage({ type: 'SKIP_WAITING' });
+            setTimeout(done, 10000);
+          });
+        }
+      }
+    } catch {
+      /* offline or no service worker: a plain reload still helps */
+    }
+    location.reload();
+  };
+
   const hud = new Hud(
     {
       toggleMap,
@@ -280,6 +311,7 @@ async function main(): Promise<void> {
         else void document.documentElement.requestFullscreen?.().catch(() => undefined);
       },
       clearTarget: () => warp.setTarget(null),
+      refreshApp: () => void refreshApp(),
     },
     settings,
   );
@@ -435,6 +467,10 @@ async function main(): Promise<void> {
   let t = 0;
   let frameAcc = 0, frameN = 0, lastScaleChange = 0;
   let fpsAvg = 1 / 60;
+  let fpsTime = 0, fpsFrames = 0;
+  let engThr = 0;
+  let warpSeed = Math.random();
+  let prevWarpState = 'idle';
 
   const project = (rel: Vector3, out: Vector3) => out.copy(rel).applyMatrix4(universe.camera.matrixWorldInverse).applyMatrix4(universe.camera.projectionMatrix);
 
@@ -473,6 +509,9 @@ async function main(): Promise<void> {
           hud.refreshToggles();
           saveSettings(settings);
           break;
+        case 'KeyG':
+          hud.toggle('fps');
+          break;
         case 'KeyF':
           if (document.fullscreenElement) void document.exitFullscreen();
           else void document.documentElement.requestFullscreen?.().catch(() => undefined);
@@ -505,6 +544,14 @@ async function main(): Promise<void> {
     frameAcc += rawDt;
     frameN++;
     fpsAvg += (rawDt - fpsAvg) * 0.05;
+    // on-screen counter: real frames per second over half-second windows
+    fpsTime += rawDt;
+    fpsFrames++;
+    if (fpsTime >= 0.5) {
+      hud.setFps(fpsFrames / fpsTime, (fpsTime / fpsFrames) * 1000, dynScale);
+      fpsTime = 0;
+      fpsFrames = 0;
+    }
     if (frameAcc > 2) {
       const avg = frameAcc / frameN;
       frameAcc = 0;
@@ -600,20 +647,22 @@ async function main(): Promise<void> {
     const parts = shipView.parts!;
     parts.root.quaternion.copy(ship.quat);
     const thr = warp.active ? Math.max(0.15, warp.spool) : ship.throttle * (fi.boost ? 1.4 : 1);
-    for (const p of parts.plumes) {
-      p.uniforms.uThrottle.value = MathUtils.lerp(p.uniforms.uThrottle.value as number, Math.min(1.3, thr * 0.9 + 0.025), 1 - Math.exp(-dt * 6));
-      p.uniforms.uTime.value = t;
-    }
+    engThr = MathUtils.lerp(engThr, Math.min(1.3, thr * 0.9 + 0.02), 1 - Math.exp(-dt * 6));
+    shipView.setEngines(engThr, Math.max(warp.spool, warp.intensity), t);
     const eg = 1 / distExposure;
     shipView.setEmissiveGain(eg);
-    for (const g of parts.glows) g.color.setRGB(0.45, 0.72, 1.0).multiplyScalar((0.5 + thr * 3.5 + warp.intensity * 3) * eg);
     parts.nav.mat.uniforms.uPx.value = pr;
     parts.nav.mat.uniforms.uTime.value = t;
     const cockpit = rig.mode === 'cockpit';
     shipView.cabin.intensity = (cockpit ? 0.35 : 0.15) * eg * dbg.cabin;
     if (parts.canopy) parts.canopy.visible = dbg.canopy;
     shipView.screenLight.intensity = 0.3 * eg;
-    shipView.warpLight.intensity = (warp.intensity * 22 + warp.spool * 18 + warp.flash * 120) * (cockpit ? 0.4 : 1) * eg;
+    // warp light: calm and blue at 1c, flickering and drifting through colours at 100c
+    if (warp.state !== 'idle' && prevWarpState === 'idle') warpSeed = Math.random();
+    prevWarpState = warp.state;
+    const flick = 1 + fNorm * (0.5 * Math.sin(t * 7.3 + warpSeed * 20) * Math.sin(t * 3.1 + warpSeed * 9) + 2.5 * Math.max(0, Math.sin(t * 17 + warpSeed * 40)) ** 12);
+    shipView.warpLight.color.setHSL(0.6 + fNorm * 0.22 * Math.sin(t * 0.9 + warpSeed * 30), 0.55 + 0.35 * fNorm, 0.7);
+    shipView.warpLight.intensity = (warp.intensity * 8 + warp.spool * 6 + warp.flash * 20) * flick * (cockpit ? 0.8 : 1) * eg;
     mfd.update(dt, simMs);
 
     // render
@@ -622,7 +671,17 @@ async function main(): Promise<void> {
     renderer.render(sky.scene, sky.camera);
     renderer.render(universe.scene, universe.camera);
     renderer.clearDepth();
+    // alpha becomes a ship mask (0 = world, 1 = ship) so warp distortion only bends space outside the hull
+    gl.colorMask(false, false, false, true);
+    renderer.setClearColor(BLACK, 0);
+    renderer.clear(true, false, false);
+    gl.colorMask(true, true, true, true);
+    renderer.setClearColor(BLACK, 1);
     renderer.render(shipView.scene, rig.camera);
+    if (!cockpit && shipView.enginesVisible) {
+      post.captureBackground();
+      shipView.renderPlumes(renderer, rig.camera, post.bg.texture, post.hdr.width, post.hdr.height);
+    }
 
     // sun flare
     tmp.subVectors(sun.pos, camAbs);
@@ -650,7 +709,11 @@ async function main(): Promise<void> {
       warpSpeed: 1.2 + fNorm * 2.5,
       flash: warp.flash,
       bubble: Math.max(warp.spool * 0.55, warp.intensity * (0.6 + 0.4 * fNorm)),
-      shake: warp.shake,
+      shake: Math.max(warp.shake, warp.intensity * fNorm * 0.18),
+      spool: warp.spool,
+      rays: Math.max(warp.spool * 0.7, warpVis),
+      chaos: fNorm,
+      seed: warpSeed,
     });
 
     // HUD
@@ -679,6 +742,10 @@ async function main(): Promise<void> {
     });
     updateMarkers(tp);
     hud.setReticle(!cockpit && !map.open);
+    if (input.pointerLocked && !map.open && ship.aim.lengthSq() > 1e-8) {
+      const focal = (cssH / 2) / Math.tan(MathUtils.degToRad(rig.camera.fov) / 2);
+      hud.setAim({ x: -Math.tan(ship.aim.x) * focal, y: -Math.tan(ship.aim.y) * focal });
+    } else hud.setAim(null);
     if (map.open) map.draw(simMs, t);
   };
 

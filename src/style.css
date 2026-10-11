@@ -209,6 +209,7 @@ body {
 }
 .hud .labels,
 .hud .reticle,
+.hud .aim,
 .hud .target-marker,
 .hud .target-arrow,
 .hud .warp-status,
@@ -260,6 +261,24 @@ body {
   font-size: 12px;
   letter-spacing: 0.1em;
   color: var(--amber);
+}
+
+.fps {
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  font-variant-numeric: tabular-nums;
+  color: #7dffa8;
+  text-shadow: 0 0 6px rgba(0, 0, 0, 0.8);
+}
+
+.fps.warn {
+  color: var(--amber);
+}
+
+.fps.bad {
+  color: var(--red);
 }
 
 .hud-tr {
@@ -409,6 +428,18 @@ body {
   margin: -11px 0 0 -11px;
   border: 1px solid rgba(200, 230, 255, 0.35);
   border-radius: 50%;
+}
+
+.aim {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  border: 1.5px solid rgba(95, 212, 255, 0.85);
+  border-radius: 50%;
+  box-shadow: 0 0 6px rgba(95, 212, 255, 0.5);
 }
 
 .labels {

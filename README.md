@@ -25,7 +25,7 @@ Cosmos lets you fly a small white starship through a real-scale Solar System in 
 | Q / E | Roll |
 | Shift | Boost |
 | X | Brake |
-| Right-click | Mouse flight (pointer lock); Esc releases it |
+| Right-click | Mouse flight: the ship turns smoothly to follow the cursor; Esc releases it |
 | Left-drag | Look around in the cockpit, or orbit the camera outside |
 | V | Switch view: cockpit, chase, far chase |
 | M | Solar System map |
@@ -33,6 +33,7 @@ Cosmos lets you fly a small white starship through a real-scale Solar System in 
 | J | Engage warp, or drop out of warp |
 | L | Saved locations |
 | T | Toggle labels |
+| G | Toggle the FPS counter |
 | , / . / P | Slower time, faster time, pause |
 | F | Fullscreen |
 | H | Help |

@@ -1,4 +1,4 @@
-import { Matrix4, Quaternion, Vector3 } from 'three';
+import { Matrix4, Quaternion, Vector2, Vector3 } from 'three';
 import type { BodyState, Ephemeris } from '../sim/ephemeris';
 import { C_KMS } from '../sim/constants';
 import { polarRadius } from '../sim/bodies';
@@ -7,9 +7,11 @@ export interface FlightInput {
   pitch: number; // -1..1 (rate demand)
   yaw: number;
   roll: number;
-  /** direct angular deltas from the mouse (radians this frame) */
+  /** mouse movement this frame (radians); moves the aim point the ship follows */
   mousePitch: number;
   mouseYaw: number;
+  /** true while mouse flight is active (pointer locked) */
+  mouseFlight: boolean;
   throttleDelta: number; // per second
   boost: boolean;
   brake: boolean;
@@ -32,6 +34,8 @@ export class Ship {
   vel = new Vector3();
   quat = new Quaternion();
   angVel = new Vector3();
+  /** mouse-flight aim point as (yaw, pitch) offsets from the nose, radians; the ship turns to chase it */
+  aim = new Vector2();
   throttle = 0;
   /** speed limit currently enforced near bodies (km/s) */
   limit = SUBLIGHT_MAX;
@@ -116,17 +120,38 @@ export class Ship {
 
   update(dt: number, input: FlightInput): void {
     this.updateEnvironment();
-    if (this.autopilot) return;
+    if (this.autopilot) {
+      this.aim.set(0, 0);
+      return;
+    }
 
-    // rotation: rate demands with smoothing, mouse as direct deltas
+    // mouse flight: the mouse moves an aim point and the nose chases it with inertia
+    const AIM_MAX = 0.6; // rad
+    if (input.mouseFlight) {
+      this.aim.x += input.mouseYaw;
+      this.aim.y += input.mousePitch;
+      if (this.aim.length() > AIM_MAX) this.aim.setLength(AIM_MAX);
+    } else {
+      this.aim.multiplyScalar(Math.exp(-dt * 4));
+    }
+    const follow = 2.0; // 1/s: turn rate per radian of aim offset
+
+    // rotation: rate demands approached with inertia (heavier than the old snap-to-mouse)
     const maxRate = 1.1; // rad/s
     const k = 1 - Math.exp(-dt * 5);
-    this.angVel.x += (input.pitch * maxRate - this.angVel.x) * k;
-    this.angVel.y += (input.yaw * maxRate * 0.8 - this.angVel.y) * k;
+    const km = 1 - Math.exp(-dt * 4.5);
+    const wantX = input.pitch * maxRate + Math.max(-maxRate, Math.min(maxRate, this.aim.y * follow));
+    const wantY = input.yaw * maxRate * 0.8 + Math.max(-maxRate, Math.min(maxRate, this.aim.x * follow));
+    const mouseActive = this.aim.lengthSq() > 1e-8;
+    this.angVel.x += (wantX - this.angVel.x) * (mouseActive ? km : k);
+    this.angVel.y += (wantY - this.angVel.y) * (mouseActive ? km : k);
     this.angVel.z += (input.roll * maxRate * 1.4 - this.angVel.z) * k;
-    const dx = this.angVel.x * dt + input.mousePitch;
-    const dy = this.angVel.y * dt + input.mouseYaw;
+    const dx = this.angVel.x * dt;
+    const dy = this.angVel.y * dt;
     const dz = this.angVel.z * dt;
+    // turning toward the aim point uses it up (never past zero)
+    const consume = (a: number, d: number) => (a > 0 ? Math.max(0, a - Math.max(0, d)) : Math.min(0, a - Math.min(0, d)));
+    this.aim.set(consume(this.aim.x, dy), consume(this.aim.y, dx));
     _q.setFromAxisAngle(_axis.set(1, 0, 0), dx);
     this.quat.multiply(_q);
     _q.setFromAxisAngle(_axis.set(0, 1, 0), dy);
