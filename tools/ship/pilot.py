@@ -401,14 +401,6 @@ def hand_into(s, glove, armor):
             (V((0.006, -0.020, 0.062)), (0.0104, 0.0098)), (V((-0.004, -0.002, 0.067)), (0.0096, 0.0091)),
             (V((-0.008, 0.010, 0.066)), (0.0084, 0.0080))]
     tube_into(sub, keys, [], bone, segs=12, ref=up, step=0.008)
-    # gauntlet cuff: a thick ring round the wrist
-    prof = [(-0.066, 0.036), (-0.112, 0.043), (-0.114, 0.040), (-0.112, 0.032), (-0.070, 0.029)]
-    rings = []
-    for y, r in prof:
-        rings.append([V((0.034 + r * math.cos(2 * math.pi * j / 20), y, -0.001 + r * 1.06 * math.sin(2 * math.pi * j / 20)))
-                      for j in range(20)])
-    rings.append(rings[0])
-    loft_into(sub, rings, [w] * len(rings))
     # knuckle guard on the back of the hand
     guard = Part()
     cap_into(guard, V((0.040, -0.012, 0.002)), (0.040, 0.034, 0.024), V((1, 0, 0)), V((0, 0, 1)), 0.75, w, thickness=0.004)
@@ -419,6 +411,12 @@ def hand_into(s, glove, armor):
 
     place(sub, glove)
     place(guard, armor)
+    # glove wrist: starts inside the sleeve (following the forearm) and ends inside the palm (following the hand)
+    sx = 'R' if s > 0 else 'L'
+    wr = wrist(s)
+    d = (wr - elbow(s)).normalized()
+    tube_into(glove, [(wr - d * 0.05, (0.0255, 0.0235)), (wr - d * 0.012, (0.0262, 0.024)), (wr + d * 0.014, (0.024, 0.021))],
+              [(0.04, bone, 0.012)], f'ForeArm_{sx}', segs=16, ref=V((0, 0, 1)), step=0.01, cap0=False)
 
 
 # ---------------------------------------------------------------- shells and plates

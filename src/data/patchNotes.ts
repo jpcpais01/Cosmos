@@ -11,6 +11,11 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     date: '2026-10-11',
+    title: 'Cleaner wrists',
+    notes: ['The bulky cuffs on the pilot\'s gloves are gone. Each glove now runs straight into the sleeve, so the wrists no longer flicker or clip as the hands move the stick and throttle.'],
+  },
+  {
+    date: '2026-10-11',
     title: 'Clouds are back on Earth',
     notes: [
       'Earth has its clouds again, now as part of the planet\'s 8K surface picture: they stay put over the ground instead of drifting as a separate layer, and cast no extra shadows.',
