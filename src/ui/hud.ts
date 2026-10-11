@@ -233,7 +233,8 @@ export class Hud {
       this.refreshPerf();
       saveSettings(this.settings);
     };
-    tl.append(this.locName, this.locSub, this.dateEl, timeRow, this.fpsEl);
+    // touch: the time controls live in the "more" menu, so the corner stays small
+    tl.append(this.locName, this.locSub, this.dateEl, ...(TOUCH ? [] : [timeRow]), this.fpsEl);
 
     // top-right toolbar
     const tr = el('div', 'hud-tr');
@@ -253,8 +254,12 @@ export class Hud {
     // touch: name each button, since there is no hover tooltip to say what it does
     const names = ['Labels', 'Sound', 'Settings', 'Controls', 'Update', 'Fullscreen'];
     [...more.children].forEach((b, i) => b.append(el('span', 'btn-name', names[i])));
-    // capture phase: the buttons stop their clicks from bubbling
-    more.addEventListener('click', () => tr.classList.remove('open'), true);
+    if (TOUCH) more.append(timeRow);
+    // capture phase: the buttons stop their clicks from bubbling. The time buttons keep the menu
+    // open so they can be tapped several times.
+    more.addEventListener('click', (e) => {
+      if (!(e.target as Element).closest('.time-row')) tr.classList.remove('open');
+    }, true);
     // a tap anywhere else closes the menu too
     window.addEventListener('pointerdown', (e) => {
       if (tr.classList.contains('open') && !tr.contains(e.target as Node)) tr.classList.remove('open');
@@ -763,8 +768,10 @@ export class Hud {
     this.thrFill.classList.toggle('rev', rev);
     this.locName.textContent = s.nearest.toUpperCase();
     this.locSub.textContent = `${s.nearest === 'Interplanetary space' ? 'From the Sun' : 'Altitude'} ${fmtDistance(s.altitude)} · ${s.view}`;
-    this.dateEl.textContent = fmtDate(s.simMs);
-    this.scaleEl.textContent = s.timeScale === 0 ? 'PAUSED' : s.timeScale === 1 ? 'REAL TIME' : `×${s.timeScale.toLocaleString('en-US')}`;
+    const scale = s.timeScale === 0 ? 'PAUSED' : s.timeScale === 1 ? 'REAL TIME' : `×${s.timeScale.toLocaleString('en-US')}`;
+    this.scaleEl.textContent = scale;
+    // touch: the time controls are tucked away, so say here when time isn't running normally
+    this.dateEl.textContent = TOUCH && s.timeScale !== 1 ? `${fmtDate(s.simMs)} · ${scale}` : fmtDate(s.simMs);
     for (const [f, b] of this.factorBtns) b.classList.toggle('on', f === s.warpFactor);
     const fl = `${s.warpFactor}c`;
     if (this.factorCycle.textContent !== fl) this.factorCycle.textContent = fl;

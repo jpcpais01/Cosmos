@@ -11,6 +11,16 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     date: '2026-10-11',
+    title: 'A cleaner phone layout',
+    notes: [
+      'On phones the flight controls now take centre stage: a tall throttle on the right edge with BOOST, BRAKE and REV beside it, and the stick and roll buttons on the left.',
+      'The scanner moved to the top left, with your location and the date in small type beside it.',
+      'The warp drive is now one slim strip at the bottom: the destination, the warp factor and ENGAGE.',
+      'Smaller toolbar buttons and speed readout. The time controls are in the ••• menu, and the date shows the time rate whenever time isn\'t running normally.',
+    ],
+  },
+  {
+    date: '2026-10-11',
     title: 'Cleaner wrists',
     notes: ['The bulky cuffs on the pilot\'s gloves are gone. Each glove now runs straight into the sleeve, so the wrists no longer flicker or clip as the hands move the stick and throttle.'],
   },
