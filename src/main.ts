@@ -48,7 +48,7 @@ const PRESETS: Record<Quality, Preset> = {
   low: { pixelRatio: 0.75, aa: false, sharpen: 0, maxTexture: 2048, shadow: 1024, milkyWay: 2048 },
   medium: { pixelRatio: 1, aa: true, sharpen: 0.2, maxTexture: 4096, shadow: 2048, milkyWay: 6000 },
   high: { pixelRatio: 1.25, aa: true, sharpen: 0.3, maxTexture: 8192, shadow: 2048, milkyWay: 6000 },
-  ultra: { pixelRatio: 1.5, aa: true, sharpen: 0.3, maxTexture: 8192, shadow: 4096, milkyWay: 6000 },
+  ultra: { pixelRatio: 1.5, aa: true, sharpen: 0.3, maxTexture: 8192, shadow: 2048, milkyWay: 6000 },
 };
 
 const TIME_SCALES = [1, 10, 100, 1000, 10_000, 100_000, 1_000_000];
@@ -249,6 +249,7 @@ async function main(): Promise<void> {
       shipView.sun.shadow.mapSize.set(preset.shadow, preset.shadow);
       shipView.sun.shadow.map?.dispose();
       shipView.sun.shadow.map = null;
+      shadowAge = Infinity;
       if (texChanged) universe.textures.maxWidth = Math.min(preset.maxTexture, renderer.capabilities.maxTextureSize);
       if (preset.milkyWay > 2048) void loadSky(preset.milkyWay);
       dynScale = 1;
@@ -509,6 +510,14 @@ async function main(): Promise<void> {
   let fpsTime = 0, fpsFrames = 0;
   let engThr = 0;
   let warpSeed = Math.random();
+  // The ship's shadow map is redrawn only when the light moves across the ship (it turns, or the
+  // view changes), and every few frames for the pilot's small movements: it was a sizeable part of the GPU frame.
+  renderer.shadowMap.autoUpdate = false;
+  const shadowSunDir = new Vector3();
+  const shipQInv = new Quaternion();
+  const sunInShip = new Vector3();
+  let shadowAge = Infinity;
+  let shadowMode = '';
   let prevWarpState = 'idle';
 
   const project = (rel: Vector3, out: Vector3) => out.copy(rel).applyMatrix4(universe.camera.matrixWorldInverse).applyMatrix4(universe.camera.projectionMatrix);
@@ -699,6 +708,14 @@ async function main(): Promise<void> {
     sl.intensity = irr * Math.PI * vis;
     sl.color.setRGB(SUN_COLOR.x, SUN_COLOR.y, SUN_COLOR.z);
     sl.castShadow = vis > 0.01;
+    sunInShip.copy(toSun).applyQuaternion(shipQInv.copy(ship.quat).invert());
+    shadowAge++;
+    if (sl.castShadow && (shadowAge >= 4 || rig.mode !== shadowMode || sunInShip.dot(shadowSunDir) < 0.9999998)) {
+      renderer.shadowMap.needsUpdate = true;
+      shadowSunDir.copy(sunInShip);
+      shadowMode = rig.mode;
+      shadowAge = 0;
+    }
     prof.gpu('Reflections');
     env.update(dt, camAbs, 1 / distExposure);
     prof.gpuEnd();
