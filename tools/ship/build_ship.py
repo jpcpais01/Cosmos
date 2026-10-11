@@ -504,9 +504,7 @@ def lever(name, pivot, shaft_len, top_buttons):
         p.use_smooth = True
     parts.append(ball)
     # grip: lathe with an ergonomic profile
-    prof = [(pilot.GRIP_BOTTOM - 0.004, 0.0), (pilot.GRIP_BOTTOM, 0.021), (pilot.GRIP_BOTTOM + 0.02, 0.0205),
-            (-0.02, 0.021), (0.02, 0.0215), (pilot.GRIP_TOP - 0.012, 0.0235), (pilot.GRIP_TOP - 0.002, 0.0215),
-            (pilot.GRIP_TOP + 0.002, 0.012), (pilot.GRIP_TOP + 0.004, 0.0)]
+    prof = pilot.GRIP_PROFILE
     m = 28
     side = Vector((1, 0, 0))
     fwd = up.cross(side) * -1
@@ -514,7 +512,7 @@ def lever(name, pivot, shaft_len, top_buttons):
     for z, r in prof:
         for k in range(m):
             a = 2 * math.pi * k / m
-            verts.append(tuple(centre + up * z + side * (r * math.cos(a)) + fwd * (r * 1.08 * math.sin(a))))
+            verts.append(tuple(centre + up * z + side * (r * math.cos(a)) + fwd * (r * math.sin(a))))
     for i in range(len(prof) - 1):
         for k in range(m):
             a, b = i * m + k, i * m + (k + 1) % m

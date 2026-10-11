@@ -17,13 +17,23 @@ EYE = V((0.0, 1.57, 1.52))
 GRIP_TILT = math.radians(12)  # the grips lean forward
 GRIP_UP = V((0, math.sin(GRIP_TILT), math.cos(GRIP_TILT)))
 GRIP_FWD = V((0, math.cos(GRIP_TILT), -math.sin(GRIP_TILT)))
-GRIP_R = 0.021
 # centre of each hand's hold: right = flight stick, left = throttle
 GRIP = {1: V((0.27, 2.10, 1.275)), -1: V((-0.27, 2.10, 1.275))}
 STICK_PIVOT = GRIP[1] - GRIP_UP * 0.13
 THROTTLE_PIVOT = GRIP[-1] - GRIP_UP * 0.19
 # the grip spans these offsets along GRIP_UP from its centre
 GRIP_BOTTOM, GRIP_TOP = -0.066, 0.058
+# lathe profile of the grip (offset along GRIP_UP, radius); the fingers wrap round it
+GRIP_PROFILE = [(GRIP_BOTTOM - 0.004, 0.0), (GRIP_BOTTOM, 0.021), (GRIP_BOTTOM + 0.02, 0.0205), (-0.02, 0.021),
+                (0.02, 0.0215), (GRIP_TOP - 0.012, 0.0235), (GRIP_TOP - 0.002, 0.0215), (GRIP_TOP + 0.002, 0.012),
+                (GRIP_TOP + 0.004, 0.0)]
+
+
+def grip_radius(z):
+    for (z0, r0), (z1, r1) in zip(GRIP_PROFILE, GRIP_PROFILE[1:]):
+        if z0 <= z <= z1:
+            return r0 + (r1 - r0) * (z - z0) / (z1 - z0)
+    return 0.0
 
 # ---------------------------------------------------------------- skeleton (seated rest pose)
 PELVIS = V((0, 1.52, 0.80))
@@ -158,7 +168,7 @@ def loft_into(part, rings, weights, cap0=False, cap1=False):
     m = len(rings[0])
     verts = [p for r in rings for p in r]
     wts = [w for w in weights for _ in range(m)]
-    faces, caps = ring_faces(len(rings), m)
+    faces, caps = ring_faces(len(rings), m, cap0, cap1)
     for kind, idx in caps:
         c = sum((verts[i] for i in idx), V()) / m
         ci = len(verts)
@@ -338,7 +348,7 @@ def build_torso(part):
 
 # ---------------------------------------------------------------- hands
 def hand_into(s, glove, armor):
-    """A gloved hand closed around a vertical grip of radius GRIP_R. Built as a right hand in the
+    """A gloved hand closed around the grip (GRIP_PROFILE). Built as a right hand in the
     hand frame (x away from the body, y forward, z up the grip), then placed and mirrored."""
     w = {f'Hand_{"R" if s > 0 else "L"}': 1.0}
     bone = next(iter(w))
@@ -360,8 +370,9 @@ def hand_into(s, glove, armor):
         rings.append(ring)
     loft_into(sub, rings, [w] * len(rings), cap0=True, cap1=True)
     # fingers: from the knuckles, curled round the front of the grip; index on top
-    rf = GRIP_R + 0.0105
     for z, r, sweep in ((0.032, 0.0104, 168), (0.0105, 0.0108, 178), (-0.0105, 0.0103, 170), (-0.030, 0.0092, 150)):
+        # wrap just outside the widest part of the grip under this finger
+        rf = max(grip_radius(z + dz) for dz in (-r, 0.0, r)) + r + 0.0008
         pts, radii = [], []
         mcp = V((0.040, 0.010, z))
         a0 = math.atan2(mcp.y, mcp.x)
