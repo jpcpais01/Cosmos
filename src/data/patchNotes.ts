@@ -9,6 +9,16 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    version: '0.25',
+    date: '2026-10-11',
+    title: 'A steadier, brighter Sun',
+    notes: [
+      'The Sun no longer flickers or flashes the screen white when it is only a few pixels wide.',
+      'New glare around the Sun: a hot core, soft halo, diffraction spikes and fine streaks that hold still as you look around.',
+      'The glare fades smoothly behind the cockpit frame and at the edge of the screen instead of popping on and off.',
+    ],
+  },
+  {
     version: '0.24',
     date: '2026-10-11',
     title: 'Choose your resolution',

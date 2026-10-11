@@ -15,7 +15,8 @@ varying vec2 vUv;
 uniform sampler2D uSrc;
 uniform vec2 uTexel;
 uniform bool uKaris;
-vec3 s(vec2 o) { return texture(uSrc, vUv + o * uTexel).rgb; }
+// clamped so a pixel that overflowed half float (+inf) cannot turn the whole bloom into NaN
+vec3 s(vec2 o) { return min(texture(uSrc, vUv + o * uTexel).rgb, vec3(6.0e4)); }
 float w(vec3 c) { return 1.0 / (1.0 + dot(c, vec3(0.2126, 0.7152, 0.0722))); }
 void main() {
   vec3 a = s(vec2(-2, 2)), b = s(vec2(0, 2)), c = s(vec2(2, 2));
@@ -80,8 +81,9 @@ uniform float uBloomStrength;
 uniform float uTime;
 // sun / flare
 uniform vec2 uSunUv;
-uniform float uSunOn;
+uniform float uSunOn;     // 0..1: in view and not eclipsed
 uniform float uSunPower;
+uniform float uSunRadius; // disc radius in screen heights
 // warp
 uniform vec2 uApex;
 uniform float uWarp;      // tunnel strength 0..1
@@ -120,27 +122,49 @@ float flareDisc(vec2 p, vec2 c, float r, float soft) {
   return smoothstep(r, r * (1.0 - soft), d);
 }
 
-// Lens flare from the Sun: visibility measured from the scene itself (occluded by planets and the cockpit)
+// Sun glare, drawn analytically around the Sun's exact sub-pixel position so it stays steady while the
+// view moves (the disc itself is only a few pixels across). Hidden by the ship through its mask, which
+// is filtered so the glare fades smoothly as a strut or the hull slides over the Sun.
 vec3 sunFlare(vec2 uv, vec2 aspect) {
   if (uSunOn <= 0.0) return vec3(0.0);
-  float vis = 0.0;
-  for (int i = 0; i < 9; i++) {
-    vec2 o = vec2(float(i % 3) - 1.0, float(i / 3) - 1.0) * 2.0 / uResolution;
-    vis += smoothstep(40.0, 400.0, dot(texture(uScene, uSunUv + o).rgb, vec3(0.3333)));
+  float hid = 0.0;
+  if (all(greaterThan(uSunUv, vec2(0.0))) && all(lessThan(uSunUv, vec2(1.0)))) {
+    vec2 sr = vec2(max(uSunRadius * uResolution.y * 0.7, 0.75)) / uResolution;
+    hid = (texture(uScene, uSunUv).a * 2.0 + texture(uScene, uSunUv + vec2(sr.x, 0.0)).a + texture(uScene, uSunUv - vec2(sr.x, 0.0)).a
+         + texture(uScene, uSunUv + vec2(0.0, sr.y)).a + texture(uScene, uSunUv - vec2(0.0, sr.y)).a) / 6.0;
   }
-  vis /= 9.0;
+  float vis = uSunOn * (1.0 - clamp(hid, 0.0, 1.0)) * uSunPower;
   if (vis <= 0.0) return vec3(0.0);
+  vec2 sd = (uv - uSunUv) * aspect;          // in screen heights
+  float dsun = length(sd);
+  float k = max(dsun - uSunRadius, 0.0);     // distance from the limb
+  float px = 1.0 / uResolution.y;
+  // glow: a hot core hugging the disc, a soft halo and a faint veil over the whole frame
+  float glow = 4.0 * exp(-k * 300.0) + 0.5 / (1.0 + k * k * 7000.0) + 0.12 / (1.0 + k * k * 280.0) + 0.014 / (1.0 + k * k * 10.0);
+  // six thin diffraction spikes, at least a pixel and a half wide so they never shimmer
+  const vec2 A0 = vec2(0.966, 0.259), A1 = vec2(-0.259, 0.966), A2 = vec2(-0.707, -0.707);
+  float wid = max(px * 1.5, 0.0009 + dsun * 0.006);
+  float spk = exp(-abs(dot(sd, vec2(-A0.y, A0.x))) / wid) + exp(-abs(dot(sd, vec2(-A1.y, A1.x))) / wid) * 0.7
+            + exp(-abs(dot(sd, vec2(-A2.y, A2.x))) / wid) * 0.55;
+  spk *= 0.35 / (1.0 + dsun * dsun * 450.0) * smoothstep(0.0, 0.004, k);
+  // fine static streaks radiating from the Sun (the eye's ciliary corona)
+  float streak = 0.0;
+  if (dsun < 0.35) {
+    vec2 sdir = sd / max(dsun, 1e-5);
+    streak = pow(vnoise3(vec3(sdir * 16.0, 3.7)), 3.0) * 0.6 + pow(vnoise3(vec3(sdir * 41.0, 9.1)), 4.0) * 0.5;
+    streak *= 0.5 / (1.0 + dsun * dsun * 900.0) * smoothstep(0.002, 0.012, k);
+  }
+  vec3 fl = vec3(1.0, 0.9, 0.78) * glow + vec3(1.0, 0.95, 0.9) * (spk + streak);
+  // lens ghosts along the line through the centre of the frame, with a faint rainbow ring
   vec2 axis = vec2(0.5) - uSunUv;
-  vec3 fl = vec3(0.0);
   fl += vec3(0.9, 0.6, 0.35) * flareDisc(uv, uSunUv + axis * 0.55, 0.03, 0.4) * 0.012;
   fl += vec3(0.35, 0.6, 1.0) * flareDisc(uv, uSunUv + axis * 0.85, 0.05, 0.15) * 0.008;
   fl += vec3(0.5, 1.0, 0.6) * flareDisc(uv, uSunUv + axis * 1.25, 0.02, 0.5) * 0.014;
   fl += vec3(1.0, 0.5, 0.8) * flareDisc(uv, uSunUv + axis * 1.6, 0.09, 0.08) * 0.005;
   fl += vec3(0.6, 0.75, 1.0) * flareDisc(uv, uSunUv + axis * 2.1, 0.15, 0.05) * 0.003;
-  // soft veiling glare across the whole frame
-  float dsun = length((uv - uSunUv) * aspect);
-  fl += vec3(1.0, 0.9, 0.8) * 0.02 / (1.0 + dsun * dsun * 40.0);
-  return fl * vis * uSunPower;
+  float rg = (dsun - 0.3) / 0.035;
+  fl += warpHue(0.62 - rg * 0.12) * exp(-rg * rg) * 0.004;
+  return fl * vis;
 }
 
 // grading, vignette, grain and dither; alpha carries luma for the anti-aliasing pass
@@ -172,6 +196,7 @@ void main() {
   scene.r = texture(uScene, uv + cdir * ca).r;
   scene.g = texture(uScene, uv).g;
   scene.b = texture(uScene, uv - cdir * ca).b;
+  scene = min(scene, vec3(6.0e4));
   vec3 bloom = texture(uBloom, uv).rgb;
   vec3 col = mix(scene, bloom, uBloomStrength) * exposureNow();
   col += sunFlare(uv, aspect);
@@ -252,6 +277,7 @@ void main() {
   scene.r = texture(uScene, suv + cdir * ca).r;
   scene.g = texture(uScene, suv).g;
   scene.b = texture(uScene, suv - cdir * ca).b;
+  scene = min(scene, vec3(6.0e4));
   vec3 bloom = texture(uBloom, suv).rgb;
 
   float exposure = exposureNow();
@@ -404,8 +430,11 @@ export interface PostParams {
   time: number;
   dt: number;
   sunUv: Vector2;
+  /** 0..1: how much of the Sun is in view and not eclipsed by a planet or moon */
   sunOn: number;
   sunPower: number;
+  /** angular radius of the Sun's disc, in screen heights */
+  sunRadius: number;
   apex: Vector2;
   warp: number;
   warpSpeed: number;
@@ -492,7 +521,7 @@ export class PostPipeline {
         uScene: { value: null }, uBloom: { value: null }, uAdapt: { value: null },
         uResolution: { value: new Vector2() }, uExposure: { value: 1 }, uAdaptStrength: { value: 1 },
         uBloomStrength: { value: 0.05 }, uTime: { value: 0 },
-        uSunUv: { value: new Vector2() }, uSunOn: { value: 0 }, uSunPower: { value: 1 },
+        uSunUv: { value: new Vector2() }, uSunOn: { value: 0 }, uSunPower: { value: 1 }, uSunRadius: { value: 0 },
         uApex: { value: new Vector2(0.5, 0.5) }, uWarp: { value: 0 }, uWarpSpeed: { value: 1 }, uFlash: { value: 0 },
         uBubble: { value: 0 }, uShake: { value: 0 }, uSpool: { value: 0 }, uRays: { value: 0 }, uChaos: { value: 0 }, uSeed: { value: 0 },
       },
@@ -599,6 +628,7 @@ export class PostPipeline {
     (u.uSunUv.value as Vector2).copy(p.sunUv);
     u.uSunOn.value = p.sunOn;
     u.uSunPower.value = p.sunPower;
+    u.uSunRadius.value = p.sunRadius;
     (u.uApex.value as Vector2).copy(p.apex);
     u.uWarp.value = p.warp;
     u.uWarpSpeed.value = p.warpSpeed;
