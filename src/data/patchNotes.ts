@@ -11,6 +11,14 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     date: '2026-10-11',
+    title: 'Galaxy map',
+    notes: [
+      'The map (M) has a Galaxy button: the whole Milky Way seen from above, with its bar and spiral arms, and the Solar System and Kepler-385 where they really are. Zoom out to see all of it, or in to see how close the two are in a galaxy 100,000 light years across.',
+      'Tap a star system for its star, planets and distance. View planets opens its own map, even while you are in another system. Go via warp gate sets course for the gate that leads there.',
+    ],
+  },
+  {
+    date: '2026-10-11',
     title: 'Warp gates: jump to another star',
     notes: [
       'Every star system now has a warp gate at its edge, the only way to another star. The Solar System\'s is 32 AU out, beyond Neptune, facing Kepler-385 in Cygnus. Kepler-385\'s is 1 AU from its star, on the side that faces home.',
