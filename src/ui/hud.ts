@@ -57,6 +57,7 @@ export interface HudActions {
   deleteLocation(id: string): void;
   settingsChanged(s: Settings): void;
   fullscreen(): void;
+  refreshApp(): void;
   clearTarget(): void;
 }
 
@@ -107,6 +108,7 @@ const ICONS = {
   sound: '<svg viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z" fill="none"/><path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a7.5 7.5 0 0 1 0 11" fill="none"/></svg>',
   gear: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2" fill="none"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1" fill="none"/></svg>',
   help: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.5" fill="none"/><path d="M9.5 9.3a2.6 2.6 0 1 1 3.6 2.4c-.8.4-1.1 1-1.1 1.8v.6" fill="none"/><circle cx="12" cy="17.3" r=".9"/></svg>',
+  refresh: '<svg viewBox="0 0 24 24"><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3" fill="none"/><path d="M18.5 3.5v4h-4" fill="none"/></svg>',
   full: '<svg viewBox="0 0 24 24"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" fill="none"/></svg>',
 };
 
@@ -171,6 +173,7 @@ export class Hud {
       this.soundBtn,
       btn(ICONS.gear, 'Settings', () => this.showPanel(this.settingsPanel), 'btn icon'),
       btn(ICONS.help, 'Controls (H)', () => this.showPanel(this.helpPanel), 'btn icon'),
+      btn(ICONS.refresh, 'Update and reload the app', () => actions.refreshApp(), 'btn icon'),
       btn(ICONS.full, 'Fullscreen (F)', () => actions.fullscreen(), 'btn icon'),
     );
 

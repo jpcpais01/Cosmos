@@ -238,6 +238,35 @@ async function main(): Promise<void> {
     }
   };
 
+  /** Checks for a new version, lets a new service worker take over, then reloads. */
+  let refreshing = false;
+  const refreshApp = async () => {
+    if (refreshing) return;
+    refreshing = true;
+    hud.toast('Checking for updates…', 8000);
+    try {
+      const reg = await navigator.serviceWorker?.getRegistration();
+      if (reg) {
+        await reg.update();
+        const next = reg.installing ?? reg.waiting;
+        if (next) {
+          hud.toast('Updating…', 8000);
+          // the worker skips waiting by itself; wait until it controls the page (or give up after a while)
+          await new Promise<void>((resolve) => {
+            const done = () => resolve();
+            navigator.serviceWorker.addEventListener('controllerchange', done, { once: true });
+            next.addEventListener('statechange', () => next.state === 'activated' && done());
+            next.postMessage({ type: 'SKIP_WAITING' });
+            setTimeout(done, 10000);
+          });
+        }
+      }
+    } catch {
+      /* offline or no service worker: a plain reload still helps */
+    }
+    location.reload();
+  };
+
   const hud = new Hud(
     {
       toggleMap,
@@ -282,6 +311,7 @@ async function main(): Promise<void> {
         else void document.documentElement.requestFullscreen?.().catch(() => undefined);
       },
       clearTarget: () => warp.setTarget(null),
+      refreshApp: () => void refreshApp(),
     },
     settings,
   );
