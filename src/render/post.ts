@@ -120,6 +120,64 @@ float flareDisc(vec2 p, vec2 c, float r, float soft) {
   return smoothstep(r, r * (1.0 - soft), d);
 }
 
+// Lens flare from the Sun: visibility measured from the scene itself (occluded by planets and the cockpit)
+vec3 sunFlare(vec2 uv, vec2 aspect) {
+  if (uSunOn <= 0.0) return vec3(0.0);
+  float vis = 0.0;
+  for (int i = 0; i < 9; i++) {
+    vec2 o = vec2(float(i % 3) - 1.0, float(i / 3) - 1.0) * 2.0 / uResolution;
+    vis += smoothstep(40.0, 400.0, dot(texture(uScene, uSunUv + o).rgb, vec3(0.3333)));
+  }
+  vis /= 9.0;
+  if (vis <= 0.0) return vec3(0.0);
+  vec2 axis = vec2(0.5) - uSunUv;
+  vec3 fl = vec3(0.0);
+  fl += vec3(0.9, 0.6, 0.35) * flareDisc(uv, uSunUv + axis * 0.55, 0.03, 0.4) * 0.012;
+  fl += vec3(0.35, 0.6, 1.0) * flareDisc(uv, uSunUv + axis * 0.85, 0.05, 0.15) * 0.008;
+  fl += vec3(0.5, 1.0, 0.6) * flareDisc(uv, uSunUv + axis * 1.25, 0.02, 0.5) * 0.014;
+  fl += vec3(1.0, 0.5, 0.8) * flareDisc(uv, uSunUv + axis * 1.6, 0.09, 0.08) * 0.005;
+  fl += vec3(0.6, 0.75, 1.0) * flareDisc(uv, uSunUv + axis * 2.1, 0.15, 0.05) * 0.003;
+  // soft veiling glare across the whole frame
+  float dsun = length((uv - uSunUv) * aspect);
+  fl += vec3(1.0, 0.9, 0.8) * 0.02 / (1.0 + dsun * dsun * 40.0);
+  return fl * vis * uSunPower;
+}
+
+// grading, vignette, grain and dither; alpha carries luma for the anti-aliasing pass
+vec4 finish(vec3 col) {
+  vec3 outc = agx(col);
+  float vig = 1.0 - 0.22 * pow(length((vUv - 0.5) * vec2(1.0, 0.9)) * 1.25, 2.6);
+  outc *= vig;
+  float n = hash12(gl_FragCoord.xy + fract(uTime * 13.7) * 431.0);
+  outc += (n - 0.5) * (1.6 / 255.0);
+  return vec4(outc, dot(outc, vec3(0.299, 0.587, 0.114)));
+}
+
+float exposureNow() {
+  float avg = texture(uAdapt, vec2(0.5)).r;
+  float adapt = clamp(pow(0.16 / max(avg, 1e-4), 0.55), 0.3, 2.2);
+  return uExposure * mix(1.0, adapt, uAdaptStrength);
+}
+
+#ifndef WARP
+// Cruising (no warp effect on screen): none of the tunnel maths, the common case.
+void main() {
+  vec2 uv = vUv;
+  vec2 aspect = vec2(uResolution.x / uResolution.y, 1.0);
+  vec2 dv = (uv - 0.5) * aspect;
+  // faint lens chromatic aberration towards the corners
+  float ca = 0.0006 * dot(uv - 0.5, uv - 0.5);
+  vec2 cdir = normalize(dv + 1e-5) / aspect;
+  vec3 scene;
+  scene.r = texture(uScene, uv + cdir * ca).r;
+  scene.g = texture(uScene, uv).g;
+  scene.b = texture(uScene, uv - cdir * ca).b;
+  vec3 bloom = texture(uBloom, uv).rgb;
+  vec3 col = mix(scene, bloom, uBloomStrength) * exposureNow();
+  col += sunFlare(uv, aspect);
+  gl_FragColor = finish(col);
+}
+#else
 void main() {
   vec2 uv = vUv;
   vec2 aspect = vec2(uResolution.x / uResolution.y, 1.0);
@@ -196,32 +254,11 @@ void main() {
   scene.b = texture(uScene, suv - cdir * ca).b;
   vec3 bloom = texture(uBloom, suv).rgb;
 
-  float avg = texture(uAdapt, vec2(0.5)).r;
-  float adapt = clamp(pow(0.16 / max(avg, 1e-4), 0.55), 0.3, 2.2);
-  float exposure = uExposure * mix(1.0, adapt, uAdaptStrength);
+  float exposure = exposureNow();
   vec3 col = mix(scene, bloom, uBloomStrength) * exposure;
   col *= 1.0 + haze * vec3(0.06, 0.09, 0.16);
 
-  // Lens flare from the Sun: visibility measured from the scene itself (occluded by planets and the cockpit)
-  if (uSunOn > 0.0) {
-    float vis = 0.0;
-    for (int i = 0; i < 9; i++) {
-      vec2 o = vec2(float(i % 3) - 1.0, float(i / 3) - 1.0) * 2.0 / uResolution;
-      vis += smoothstep(40.0, 400.0, dot(texture(uScene, uSunUv + o).rgb, vec3(0.3333)));
-    }
-    vis /= 9.0;
-    vec2 axis = vec2(0.5) - uSunUv;
-    vec3 fl = vec3(0.0);
-    fl += vec3(0.9, 0.6, 0.35) * flareDisc(uv, uSunUv + axis * 0.55, 0.03, 0.4) * 0.012;
-    fl += vec3(0.35, 0.6, 1.0) * flareDisc(uv, uSunUv + axis * 0.85, 0.05, 0.15) * 0.008;
-    fl += vec3(0.5, 1.0, 0.6) * flareDisc(uv, uSunUv + axis * 1.25, 0.02, 0.5) * 0.014;
-    fl += vec3(1.0, 0.5, 0.8) * flareDisc(uv, uSunUv + axis * 1.6, 0.09, 0.08) * 0.005;
-    fl += vec3(0.6, 0.75, 1.0) * flareDisc(uv, uSunUv + axis * 2.1, 0.15, 0.05) * 0.003;
-    // soft veiling glare across the whole frame
-    float dsun = length((uv - uSunUv) * aspect);
-    fl += vec3(1.0, 0.9, 0.8) * 0.02 / (1.0 + dsun * dsun * 40.0);
-    col += fl * vis * uSunPower;
-  }
+  col += sunFlare(uv, aspect);
 
   // God rays: the glow of the scene smeared outward from the warp apex, broken into shafts
   if (uRays > 0.001) {
@@ -272,15 +309,10 @@ void main() {
   // entry / exit flash: bright at the apex, a soft veil elsewhere
   col += vec3(0.75, 0.88, 1.0) * uFlash * (0.25 + 2.5 / (1.0 + r * r * 30.0)) * (space + 0.15 * inside);
 
-  vec3 outc = agx(col);
-  // vignette + grain + dither
-  float vig = 1.0 - 0.22 * pow(length((vUv - 0.5) * vec2(1.0, 0.9)) * 1.25, 2.6);
-  outc *= vig;
-  float n = hash12(gl_FragCoord.xy + fract(uTime * 13.7) * 431.0);
-  outc += (n - 0.5) * (1.6 / 255.0);
-  // alpha carries luma for the anti-aliasing pass (ignored when drawing straight to the screen)
-  gl_FragColor = vec4(outc, dot(outc, vec3(0.299, 0.587, 0.114)));
-}`;
+  gl_FragColor = finish(col);
+}
+#endif
+`;
 
 /*
  * FXAA (after Lottes' FXAA 3.11, quality preset) on the final display image, plus a light
@@ -413,6 +445,8 @@ export class PostPipeline {
   private up: ShaderMaterial;
   private adaptMat: ShaderMaterial;
   private comp: ShaderMaterial;
+  /** the composite with the warp effects compiled in; the plain one skips all of that maths */
+  private compWarp: ShaderMaterial;
   /** Final display image, input of the anti-aliasing pass. */
   private ldr: WebGLRenderTarget;
   private fxaa: ShaderMaterial;
@@ -462,11 +496,19 @@ export class PostPipeline {
         uBubble: { value: 0 }, uShake: { value: 0 }, uSpool: { value: 0 }, uRays: { value: 0 }, uChaos: { value: 0 }, uSeed: { value: 0 },
       },
     });
+    this.compWarp = new ShaderMaterial({
+      vertexShader: VERT, fragmentShader: COMPOSITE, depthTest: false, depthWrite: false, blending: NoBlending,
+      uniforms: this.comp.uniforms, defines: { WARP: '' },
+    });
     this.fxaa = new ShaderMaterial({ vertexShader: VERT, fragmentShader: FXAA, depthTest: false, depthWrite: false, blending: NoBlending,
       uniforms: { uSrc: { value: null }, uTexel: { value: new Vector2() }, uSharpen: { value: 0 } } });
     this.quad = new Mesh(tri, this.comp);
     this.quad.frustumCulled = false;
     this.scene.add(this.quad);
+    // compile the warp variant now so the first jump does not stall on a shader compile
+    this.quad.material = this.compWarp;
+    renderer.compile(this.scene, this.cam);
+    this.quad.material = this.comp;
   }
 
   setSize(w: number, h: number): void {
@@ -567,12 +609,14 @@ export class PostPipeline {
     u.uSeed.value = p.seed;
     u.uShake.value = p.shake;
     this.profiler?.gpu(this.aa ? 'Final image + AA' : 'Final image');
+    const warping = Math.max(p.warp, p.flash, p.bubble, p.spool, p.rays, p.shake) > 0.001;
+    const comp = warping ? this.compWarp : this.comp;
     if (this.aa) {
-      this.pass(this.comp, this.ldr);
+      this.pass(comp, this.ldr);
       this.fxaa.uniforms.uSrc.value = this.ldr.texture;
       (this.fxaa.uniforms.uTexel.value as Vector2).set(1 / this.width, 1 / this.height);
       this.pass(this.fxaa, null);
-    } else this.pass(this.comp, null);
+    } else this.pass(comp, null);
     r.autoClear = autoClear;
   }
 }

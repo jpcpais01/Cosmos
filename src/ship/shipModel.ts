@@ -235,7 +235,6 @@ export interface ShipParts {
 export class ShipView {
   readonly scene = new Scene();
   readonly sun = new DirectionalLight(0xffffff, 3);
-  readonly fill = new DirectionalLight(0x88aaff, 0);
   readonly cabin = new PointLight(0xffc89a, 0, 2.5, 2);
   readonly screenLight = new PointLight(0x7fd8ff, 0, 1.8, 2);
   readonly warpLight = new PointLight(0x88aaff, 0, 30, 1.2);
@@ -249,7 +248,7 @@ export class ShipView {
     this.sun.shadow.bias = -0.0004;
     this.sun.shadow.normalBias = 0.015;
     this.sun.shadow.radius = 2;
-    this.scene.add(this.sun, this.sun.target, this.fill, this.fill.target);
+    this.scene.add(this.sun, this.sun.target);
   }
 
   async load(onProgress?: (f: number) => void): Promise<ShipParts> {
