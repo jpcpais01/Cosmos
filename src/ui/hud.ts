@@ -30,7 +30,12 @@ export interface Settings {
   volume: number;
   /** cockpit field of view in degrees; the chase views sit 12° narrower */
   fov: number;
+  /** render resolution as a share of the screen's native pixels; 'auto' lets the quality tier and frame rate decide */
+  resolution: 'auto' | number;
 }
+
+/** Fixed render resolutions offered in Settings, as a share of the screen's native pixels. */
+export const RESOLUTION_SCALES = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
 const SETTINGS_KEY = 'cosmos.settings.v1';
 
@@ -42,7 +47,7 @@ export function defaultQuality(): Quality {
 }
 
 export function loadSettings(): Settings {
-  const d: Settings = { quality: defaultQuality(), invertY: false, sensitivity: 1, labels: true, fps: true, minimap: true, perf: true, sound: true, volume: 0.7, fov: 72 };
+  const d: Settings = { quality: defaultQuality(), invertY: false, sensitivity: 1, labels: true, fps: true, minimap: true, perf: true, sound: true, volume: 0.7, fov: 72, resolution: 'auto' };
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (raw) return { ...d, ...(JSON.parse(raw) as Partial<Settings>) };
@@ -397,6 +402,33 @@ export class Hud {
       this.commit();
     };
     row('Graphics quality', q);
+    const res = el('select');
+    const resOpts: [HTMLOptionElement, number][] = [];
+    const auto = el('option', '', 'Auto (set by quality and frame rate)');
+    auto.value = 'auto';
+    res.append(auto);
+    for (const k of RESOLUTION_SCALES) {
+      const o = el('option');
+      o.value = String(k);
+      res.append(o);
+      resOpts.push([o, k]);
+    }
+    // label each choice with the pixel size it renders at on this screen
+    const resLabels = () => {
+      const dpr = window.devicePixelRatio || 1;
+      for (const [o, k] of resOpts) {
+        o.textContent = `${Math.round(k * 100)}% · ${Math.round(window.innerWidth * dpr * k)}×${Math.round(window.innerHeight * dpr * k)}`;
+      }
+    };
+    resLabels();
+    window.addEventListener('resize', resLabels);
+    res.value = String(s.resolution);
+    if (res.selectedIndex < 0) res.value = 'auto';
+    res.onchange = () => {
+      s.resolution = res.value === 'auto' ? 'auto' : Number(res.value);
+      this.commit();
+    };
+    row('Resolution', res);
     const sens = el('input');
     sens.type = 'range';
     sens.min = '0.3';
