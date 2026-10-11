@@ -235,12 +235,18 @@ async function main(): Promise<void> {
       map.show();
     }
   };
+  let resolution = settings.resolution;
   const applySettings = (s: Settings) => {
     input.sensitivity = 0.0022 * s.sensitivity;
     input.invertY = s.invertY;
     rig.fovBase = MathUtils.clamp(s.fov, 50, 110);
     sound.volume = s.volume;
     sound.setMuted(!s.sound);
+    if (s.resolution !== resolution) {
+      resolution = s.resolution;
+      dynScale = 1;
+      resize();
+    }
     const next = PRESETS[s.quality];
     if (next !== preset) {
       const texChanged = next.maxTexture !== preset.maxTexture;
@@ -377,7 +383,10 @@ async function main(): Promise<void> {
   const resize = () => {
     cssW = window.innerWidth;
     cssH = window.innerHeight;
-    const pr = Math.min(window.devicePixelRatio || 1, preset.pixelRatio) * dynScale;
+    // a fixed resolution in Settings overrides the tier's scale and the dynamic scaling
+    const pr = settings.resolution === 'auto'
+      ? Math.min(window.devicePixelRatio || 1, preset.pixelRatio) * dynScale
+      : (window.devicePixelRatio || 1) * settings.resolution;
     renderer.setPixelRatio(pr);
     renderer.setSize(cssW, cssH, false);
     const w = Math.max(1, Math.round(cssW * pr));
@@ -633,7 +642,7 @@ async function main(): Promise<void> {
       const avg = frameAcc / frameN;
       frameAcc = 0;
       frameN = 0;
-      if (t - lastScaleChange > 3 && !params.has('nodyn')) {
+      if (t - lastScaleChange > 3 && !params.has('nodyn') && settings.resolution === 'auto') {
         if (avg > 1 / 42 && dynScale > 0.55) {
           dynScale = Math.max(0.55, dynScale - 0.15);
           lastScaleChange = t;

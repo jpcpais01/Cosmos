@@ -9,6 +9,15 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    version: '0.24',
+    date: '2026-10-11',
+    title: 'Choose your resolution',
+    notes: [
+      'Settings has a new Resolution option. Auto keeps the automatic choice made by the graphics quality and the frame rate.',
+      'Pick 50% to 200% of your screen\'s pixels (each choice shows its size) to fix the resolution instead; automatic scaling then stays off.',
+    ],
+  },
+  {
     version: '0.23',
     date: '2026-10-11',
     title: 'Continue your flight',
