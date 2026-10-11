@@ -1,5 +1,5 @@
 import {
-  AdditiveBlending, BufferAttribute, BufferGeometry, type Camera, CanvasTexture, Color, CylinderGeometry, CustomBlending, DirectionalLight,
+  AdditiveBlending, BufferAttribute, BufferGeometry, CanvasTexture, Color, CustomBlending, DirectionalLight,
   DoubleSide, Group, Mesh, MeshBasicMaterial, MeshPhysicalMaterial, MeshStandardMaterial, NoColorSpace, Object3D,
   OneFactor, OneMinusSrcAlphaFactor, PCFShadowMap, PointLight, Points, Scene, ShaderMaterial, SRGBColorSpace,
   Texture, TextureLoader, Vector2, Vector3, type Material, type WebGLRenderer,
@@ -10,7 +10,7 @@ import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.j
 
 const BASE = import.meta.env.BASE_URL;
 
-// exhaust colours: white-cyan at the nozzle, violet downstream
+// engine glow colours: white-cyan at the centre, violet at the rim
 const HOT = new Color(0.55, 0.9, 1.0);
 const COLD = new Color(0.42, 0.3, 1.0);
 
@@ -107,100 +107,9 @@ gl_FragColor = vec4(outgoingLight + tint * a, a);`,
 }
 
 /*
- * Engine exhaust: no flames, but a drive that bends space. Each engine gets
- *  - a lens tube that refracts what is behind it (ship included) with travelling, twisting ripples
- *    and a little chromatic split, read from a half-resolution copy of the frame;
- *  - a thin additive shell with a core line and energy rings that stream away from the nozzle;
- *  - a vortex in the nozzle itself.
+ * Engine glow: a vortex in each nozzle that spins up with thrust and warp.
  * Brightness is kept to a few HDR units so bloom never washes out the chase views.
  */
-const plumeVertex = /* glsl */ `
-varying vec3 vN;
-varying vec3 vView;
-varying float vAlong;
-varying float vAng;
-varying float vP11;
-void main() {
-  vP11 = projectionMatrix[1][1];
-  vAlong = 1.0 - uv.y;
-  vAng = uv.x;
-  vec4 mv = modelViewMatrix * vec4(position, 1.0);
-  vN = normalize(normalMatrix * normal);
-  vView = -mv.xyz;
-  gl_Position = projectionMatrix * mv;
-}`;
-
-const plumeCommon = /* glsl */ `
-uniform float uThrottle;
-uniform float uTime;
-uniform float uWarp;
-uniform float uGain;
-varying vec3 vN;
-varying vec3 vView;
-varying float vAlong;
-varying float vAng;
-varying float vP11;
-// visible length (fraction of the mesh) grows with thrust
-float plumeLen() { return clamp(0.22 + 0.78 * uThrottle, 0.0, 1.0); }
-float plumeFade(float L) { return smoothstep(0.0, 0.05, vAlong) * (1.0 - smoothstep(L * 0.45, L, vAlong)); }
-`;
-
-const lensFragment = /* glsl */ `
-${plumeCommon}
-uniform sampler2D uBg;
-uniform vec2 uRes;
-void main() {
-  vec3 n = normalize(vN);
-  vec3 v = normalize(vView);
-  float ndv = clamp(dot(n, v), 0.0, 1.0);
-  float L = plumeLen();
-  float fade = plumeFade(L);
-  float k = min(1.0, uThrottle * 1.6 + uWarp);
-  // ripples travelling away from the nozzle, twisting the lens as they go
-  float speed = 9.0 + 28.0 * uWarp;
-  float wave = sin(vAlong * 34.0 - uTime * speed);
-  float tw = sin(vAlong * 11.0 - uTime * speed * 0.35) * 1.4 + uTime * 0.7;
-  vec2 dir = n.xy * ndv;                                     // 0 at the centre and at the silhouette
-  dir = mat2(cos(tw), -sin(tw), sin(tw), cos(tw)) * dir;
-  float amp = 0.38 * (0.5 + 0.5 * wave) * fade * k;       // metres of apparent displacement
-  float depth = max(vView.z, 0.5);
-  vec2 off = dir * amp * vP11 / depth * 0.5;
-  off.x *= uRes.y / uRes.x;
-  vec2 uv = gl_FragCoord.xy / uRes;
-  vec3 col;
-  col.r = texture2D(uBg, uv + off * 0.85).r;
-  col.g = texture2D(uBg, uv + off).g;
-  col.b = texture2D(uBg, uv + off * 1.2).b;
-  // faint cold tint where space is bent the most
-  col *= mix(vec3(1.0), vec3(0.86, 0.95, 1.12), clamp(length(dir) * 2.0, 0.0, 1.0) * k);
-  float a = fade * smoothstep(0.02, 0.3, ndv) * k;
-  gl_FragColor = vec4(col, a);
-}`;
-
-const glowFragment = /* glsl */ `
-${plumeCommon}
-uniform vec3 uHot;
-uniform vec3 uCold;
-void main() {
-  vec3 n = normalize(vN);
-  vec3 v = normalize(vView);
-  float ndv = abs(dot(n, v));
-  float L = plumeLen();
-  float fade = plumeFade(L);
-  float t = vAlong / max(L, 0.05);
-  // a thin core line seen through the centre of the tube
-  float core = pow(ndv, 6.0) * exp(-t * 3.0) * 1.6;
-  // energy rings emitted from the nozzle; faster and denser in warp
-  float rate = 1.6 + 5.0 * uWarp;
-  float ph = fract(vAlong * (5.0 + 3.0 * uWarp) - uTime * rate);
-  float ring = exp(-pow((ph - 0.5) * 22.0, 2.0)) * (0.35 + 0.65 * ndv);
-  // fine helical filaments
-  float helix = pow(0.5 + 0.5 * sin(vAng * 6.2832 * 2.0 + vAlong * 18.0 - uTime * (6.0 + 14.0 * uWarp)), 16.0) * 0.14 * (1.0 - t);
-  vec3 col = mix(uHot, uCold, clamp(t, 0.0, 1.0));
-  float I = (core * 1.1 + ring * 0.9 + helix) * fade * min(1.0, uThrottle * 1.4 + uWarp * 0.6);
-  gl_FragColor = vec4(col * I * uGain, 0.0);
-}`;
-
 const nozzleVertex = /* glsl */ `
 varying vec2 vP;
 void main() {
@@ -241,8 +150,6 @@ export interface ShipParts {
   eye: Vector3;
   screens: Mesh[];
   glows: ShaderMaterial[];
-  plumes: ShaderMaterial[];
-  lenses: ShaderMaterial[];
   nav: { points: Points; mat: ShaderMaterial };
   interiorMeshes: Mesh[];
   hullMeshes: Mesh[];
@@ -260,9 +167,6 @@ export class ShipView {
   readonly cabin = new PointLight(0xffc89a, 0, 2.5, 2);
   readonly screenLight = new PointLight(0x7fd8ff, 0, 1.8, 2);
   readonly warpLight = new PointLight(0x88aaff, 0, 30, 1.2);
-  /** Engine exhaust; rendered after the ship so its lens can refract the finished ship image. */
-  readonly plumeScene = new Scene();
-  private plumeAnchor = new Group();
   parts?: ShipParts;
 
   constructor(renderer: WebGLRenderer) {
@@ -384,43 +288,6 @@ export class ShipView {
     const order = (m: Mesh) => ['ScreenL', 'ScreenC', 'ScreenR'].findIndex((n) => inGroup(m, n));
     screens.sort((a, b) => order(a) - order(b));
 
-    // engine exhaust (lives in its own scene; the anchor follows the model each frame)
-    const plumes: ShaderMaterial[] = [];
-    const lenses: ShaderMaterial[] = [];
-    this.plumeAnchor.matrixAutoUpdate = false;
-    this.plumeScene.add(this.plumeAnchor);
-    model.updateMatrixWorld(true);
-    const toModel = model.matrixWorld.clone().invert();
-    const len = 7.5;
-    const tube = new CylinderGeometry(0.34, 0.66, len, 40, 48, true);
-    tube.translate(0, -len / 2, 0);
-    tube.rotateX(-Math.PI / 2); // nozzle end at the engine, widening backward (+Z)
-    const shell = tube.clone().scale(0.72, 0.72, 1);
-    model.traverse((o) => {
-      if (o.name !== 'EngineL' && o.name !== 'EngineR') return;
-      const at = o.getWorldPosition(new Vector3()).applyMatrix4(toModel);
-      const common = () => ({ uThrottle: { value: 0 }, uTime: { value: 0 }, uWarp: { value: 0 }, uGain: { value: 1 } });
-      const lens = new ShaderMaterial({
-        vertexShader: plumeVertex, fragmentShader: lensFragment, transparent: true, depthWrite: false,
-        uniforms: { ...common(), uBg: { value: null }, uRes: { value: new Vector2(1, 1) } },
-      });
-      const glow = new ShaderMaterial({
-        vertexShader: plumeVertex, fragmentShader: glowFragment, transparent: true, depthWrite: false, side: DoubleSide,
-        blending: AdditiveBlending, premultipliedAlpha: true,
-        uniforms: { ...common(), uHot: { value: HOT }, uCold: { value: COLD } },
-      });
-      const lm = new Mesh(tube, lens);
-      const gm = new Mesh(shell, glow);
-      for (const [mesh, order] of [[lm, 1], [gm, 2]] as const) {
-        mesh.position.copy(at);
-        mesh.renderOrder = order;
-        mesh.frustumCulled = false;
-        this.plumeAnchor.add(mesh);
-      }
-      lenses.push(lens);
-      plumes.push(lens, glow);
-    });
-
     // navigation lights
     const navGeo = new BufferGeometry();
     navGeo.setAttribute('position', new BufferAttribute(new Float32Array(navPos.flatMap((p) => [p.x, p.y, p.z])), 3));
@@ -459,7 +326,7 @@ void main() { vec2 d = gl_PointCoord - 0.5; float g = exp(-dot(d, d) * 40.0); gl
     const pilot = new Pilot(viewEye);
     model.add(pilot.group);
 
-    this.parts = { root, model, eye, screens, glows, plumes, lenses, nav: { points: navPoints, mat: navMat }, interiorMeshes, hullMeshes, canopy, pilot, viewEye };
+    this.parts = { root, model, eye, screens, glows, nav: { points: navPoints, mat: navMat }, interiorMeshes, hullMeshes, canopy, pilot, viewEye };
     return this.parts;
   }
 
@@ -467,42 +334,20 @@ void main() { vec2 d = gl_PointCoord - 0.5; float g = exp(-dot(d, d) * 40.0); gl
   setEmissiveGain(g: number): void {
     const p = this.parts;
     if (!p) return;
-    for (const m of p.plumes) m.uniforms.uGain.value = g;
     for (const m of p.glows) m.uniforms.uGain.value = g;
     p.nav.mat.uniforms.uGain.value = g;
     for (const m of p.screens) (m.material as MeshBasicMaterial).color?.setScalar(1.6 * g);
   }
 
-  /** Drives the exhaust: thrust 0..1.3, warp 0..1 (spool and cruise). */
+  /** Drives the engine glow: thrust 0..1.3, warp 0..1 (spool and cruise). */
   setEngines(throttle: number, warp: number, time: number): void {
     const p = this.parts;
     if (!p) return;
-    for (const m of [...p.plumes, ...p.glows]) {
+    for (const m of p.glows) {
       m.uniforms.uThrottle.value = throttle;
       m.uniforms.uWarp.value = warp;
       m.uniforms.uTime.value = time;
     }
-  }
-
-  /** Whether the exhaust is worth drawing this frame. */
-  get enginesVisible(): boolean {
-    const p = this.parts;
-    if (!p || !p.lenses.length) return false;
-    const u = p.lenses[0].uniforms;
-    return (u.uThrottle.value as number) > 0.01 || (u.uWarp.value as number) > 0.01;
-  }
-
-  /** Renders the exhaust into the current target; bg is a copy of the frame with the ship already in it. */
-  renderPlumes(renderer: WebGLRenderer, camera: Camera, bg: Texture, width: number, height: number): void {
-    const p = this.parts;
-    if (!p) return;
-    this.plumeAnchor.matrix.copy(p.model.matrixWorld);
-    this.plumeAnchor.matrixWorldNeedsUpdate = true;
-    for (const m of p.lenses) {
-      m.uniforms.uBg.value = bg;
-      (m.uniforms.uRes.value as Vector2).set(width, height);
-    }
-    renderer.render(this.plumeScene, camera);
   }
 
   setScreens(textures: CanvasTexture[]): void {
