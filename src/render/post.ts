@@ -208,10 +208,24 @@ export interface PostParams {
   shake: number;
 }
 
+const COPY = /* glsl */ `
+varying vec2 vUv;
+uniform sampler2D uSrc;
+uniform vec2 uTexel;
+void main() {
+  // 4-tap box: a soft half-resolution copy is all the exhaust lens needs
+  vec3 c = texture2D(uSrc, vUv + uTexel * vec2(-0.5, -0.5)).rgb + texture2D(uSrc, vUv + uTexel * vec2(0.5, -0.5)).rgb
+         + texture2D(uSrc, vUv + uTexel * vec2(-0.5, 0.5)).rgb + texture2D(uSrc, vUv + uTexel * vec2(0.5, 0.5)).rgb;
+  gl_FragColor = vec4(c * 0.25, 1.0);
+}`;
+
 const MIPS = 6;
 
 export class PostPipeline {
   readonly hdr: WebGLRenderTarget;
+  /** Half-resolution copy of the frame so far, for refraction effects. */
+  readonly bg: WebGLRenderTarget;
+  private copy: ShaderMaterial;
   private mips: WebGLRenderTarget[] = [];
   private adapt: WebGLRenderTarget[];
   private adaptIdx = 0;
@@ -235,6 +249,9 @@ export class PostPipeline {
         type: HalfFloatType, format: RGBAFormat, depthBuffer: false, minFilter: LinearFilter, magFilter: LinearFilter,
       }));
     }
+    this.bg = new WebGLRenderTarget(1, 1, {
+      type: HalfFloatType, format: RGBAFormat, depthBuffer: false, minFilter: LinearFilter, magFilter: LinearFilter, generateMipmaps: false,
+    });
     this.adapt = [0, 1].map(() => new WebGLRenderTarget(1, 1, { type: FloatType, depthBuffer: false }));
     const tri = new BufferGeometry();
     tri.setAttribute('position', new BufferAttribute(new Float32Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]), 3));
@@ -243,6 +260,8 @@ export class PostPipeline {
     this.up = new ShaderMaterial({ vertexShader: VERT, fragmentShader: UPSAMPLE, depthTest: false, depthWrite: false,
       blending: CustomBlending, blendEquation: AddEquation, blendSrc: OneFactor, blendDst: OneFactor,
       uniforms: { uSrc: { value: null }, uTexel: { value: new Vector2() }, uWeight: { value: 1 } } });
+    this.copy = new ShaderMaterial({ vertexShader: VERT, fragmentShader: COPY, depthTest: false, depthWrite: false, blending: NoBlending,
+      uniforms: { uSrc: { value: null }, uTexel: { value: new Vector2() } } });
     this.adaptMat = new ShaderMaterial({ vertexShader: VERT, fragmentShader: ADAPT, depthTest: false, depthWrite: false,
       uniforms: { uSrc: { value: null }, uPrev: { value: null }, uBlend: { value: 0.05 } } });
     this.comp = new ShaderMaterial({
@@ -265,6 +284,7 @@ export class PostPipeline {
     this.width = w;
     this.height = h;
     this.hdr.setSize(w, h);
+    this.bg.setSize(Math.max(1, w >> 1), Math.max(1, h >> 1));
     let mw = w, mh = h;
     for (const m of this.mips) {
       mw = Math.max(1, mw >> 1);
@@ -276,6 +296,18 @@ export class PostPipeline {
   setSamples(samples: number): void {
     this.hdr.samples = samples;
     this.hdr.dispose();
+  }
+
+  /** Copies the HDR frame rendered so far into bg, then makes hdr the render target again. */
+  captureBackground(): void {
+    const r = this.renderer;
+    const autoClear = r.autoClear;
+    r.autoClear = false;
+    this.copy.uniforms.uSrc.value = this.hdr.texture;
+    (this.copy.uniforms.uTexel.value as Vector2).set(1 / this.width, 1 / this.height);
+    this.pass(this.copy, this.bg);
+    r.setRenderTarget(this.hdr);
+    r.autoClear = autoClear;
   }
 
   private pass(mat: ShaderMaterial, target: WebGLRenderTarget | null): void {

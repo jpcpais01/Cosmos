@@ -436,6 +436,7 @@ async function main(): Promise<void> {
   let frameAcc = 0, frameN = 0, lastScaleChange = 0;
   let fpsAvg = 1 / 60;
   let fpsTime = 0, fpsFrames = 0;
+  let engThr = 0;
 
   const project = (rel: Vector3, out: Vector3) => out.copy(rel).applyMatrix4(universe.camera.matrixWorldInverse).applyMatrix4(universe.camera.projectionMatrix);
 
@@ -612,20 +613,17 @@ async function main(): Promise<void> {
     const parts = shipView.parts!;
     parts.root.quaternion.copy(ship.quat);
     const thr = warp.active ? Math.max(0.15, warp.spool) : ship.throttle * (fi.boost ? 1.4 : 1);
-    for (const p of parts.plumes) {
-      p.uniforms.uThrottle.value = MathUtils.lerp(p.uniforms.uThrottle.value as number, Math.min(1.3, thr * 0.9 + 0.025), 1 - Math.exp(-dt * 6));
-      p.uniforms.uTime.value = t;
-    }
+    engThr = MathUtils.lerp(engThr, Math.min(1.3, thr * 0.9 + 0.02), 1 - Math.exp(-dt * 6));
+    shipView.setEngines(engThr, Math.max(warp.spool, warp.intensity), t);
     const eg = 1 / distExposure;
     shipView.setEmissiveGain(eg);
-    for (const g of parts.glows) g.color.setRGB(0.45, 0.72, 1.0).multiplyScalar((0.5 + thr * 3.5 + warp.intensity * 3) * eg);
     parts.nav.mat.uniforms.uPx.value = pr;
     parts.nav.mat.uniforms.uTime.value = t;
     const cockpit = rig.mode === 'cockpit';
     shipView.cabin.intensity = (cockpit ? 0.35 : 0.15) * eg * dbg.cabin;
     if (parts.canopy) parts.canopy.visible = dbg.canopy;
     shipView.screenLight.intensity = 0.3 * eg;
-    shipView.warpLight.intensity = (warp.intensity * 22 + warp.spool * 18 + warp.flash * 120) * (cockpit ? 0.4 : 1) * eg;
+    shipView.warpLight.intensity = (warp.intensity * 8 + warp.spool * 6 + warp.flash * 20) * (cockpit ? 0.8 : 1) * eg;
     mfd.update(dt, simMs);
 
     // render
@@ -635,6 +633,10 @@ async function main(): Promise<void> {
     renderer.render(universe.scene, universe.camera);
     renderer.clearDepth();
     renderer.render(shipView.scene, rig.camera);
+    if (!cockpit && shipView.enginesVisible) {
+      post.captureBackground();
+      shipView.renderPlumes(renderer, rig.camera, post.bg.texture, post.hdr.width, post.hdr.height);
+    }
 
     // sun flare
     tmp.subVectors(sun.pos, camAbs);
