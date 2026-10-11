@@ -154,7 +154,7 @@ export class WarpDrive {
       case 'aligning': {
         const ang = this.ship.turnToward(dir, dt, 1.6);
         this.ship.rel.addScaledVector(this.ship.vel, dt);
-        if (ang < 0.02 || this.t > 5) {
+        if (ang < 0.02 || this.t > 7) {
           this.state = 'spooling';
           this.t = 0;
           this.onEvent?.('spool');

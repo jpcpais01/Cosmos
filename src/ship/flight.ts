@@ -216,17 +216,39 @@ export class Ship {
     }
   }
 
-  /** Smoothly turns the ship toward a world direction; returns remaining angle (rad). */
+  /**
+   * Turns the ship toward a world direction with the same inertia as mouse flight: the turn rate
+   * eases in, is capped at `rate` (rad/s) and eases out onto the target without overshooting.
+   * Returns the remaining angle between the nose and the direction (rad).
+   */
   turnToward(dirWorld: Vector3, dt: number, rate = 1.2, upHint?: Vector3): number {
     this.forward(_fwd);
     const ang = _fwd.angleTo(dirWorld);
-    const target = lookQuat(dirWorld, upHint ?? _axis.set(0, 1, 0).applyQuaternion(this.quat));
-    const t = ang < 1e-6 ? 1 : Math.min(1, (rate * dt) / ang);
-    this.quat.slerp(target, t);
-    this.angVel.set(0, 0, 0);
+    const target = lookQuat(dirWorld, upHint ?? _axis.set(0, 1, 0).applyQuaternion(this.quat), _qt);
+    // remaining rotation in the ship's own axes (x pitch, y yaw, z roll), as a rotation vector
+    _q.copy(this.quat).invert().multiply(target);
+    if (_q.w < 0) _q.set(-_q.x, -_q.y, -_q.z, -_q.w);
+    const s = Math.sqrt(1 - Math.min(1, _q.w * _q.w));
+    const err = 2 * Math.acos(Math.min(1, _q.w));
+    if (s > 1e-9) _axis.set(_q.x / s, _q.y / s, _q.z / s).multiplyScalar(err);
+    else _axis.set(0, 0, 0);
+    // demanded rate shrinks with the remaining angle; follow and lag are critically damped
+    const want = _axis.multiplyScalar(ALIGN_FOLLOW);
+    if (want.length() > rate) want.setLength(rate);
+    this.angVel.lerp(want, 1 - Math.exp(-dt * ALIGN_LAG));
+    const step = this.angVel.length() * dt;
+    if (step > 1e-12) {
+      _q.setFromAxisAngle(_v.copy(this.angVel).normalize(), step);
+      this.quat.multiply(_q).normalize();
+    }
     return ang;
   }
 }
+
+/** auto-turn stiffness (1/s per radian left) and rate lag (1/s); lag = 4 * follow is critically damped */
+const ALIGN_FOLLOW = 1.4;
+const ALIGN_LAG = 5.6;
+const _qt = new Quaternion();
 
 const _m = new Vector3();
 const _x = new Vector3();
