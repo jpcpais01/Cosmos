@@ -4,7 +4,7 @@ Cosmos lets you fly a small white starship through a real-scale Solar System in 
 
 - **Real scale.** Planets, moons and the Sun have their true sizes, and distances are in kilometres. Positions follow live ephemerides (astronomy-engine) for the current date. You can speed time up, slow it down or pause it.
 - **Real surfaces.** Every planet and the main moons use freely licensed global maps. Earth gets day, night lights, clouds, an ocean glint and a normal map. Maps stream in at higher resolution as you get closer.
-- **Real sky.** 112,699 Hipparcos stars sit at their true positions, with true brightness and colour. The ESO Milky Way panorama is placed in the galactic frame behind them.
+- **Real sky.** 112,699 Hipparcos stars sit at their true positions, with true brightness and colour. Behind them, a Milky Way built from ESA Gaia's sky map and ESO's panorama sits in the galactic frame, and fainter stars below the catalogue's limit are drawn crisp on top of it, more of them where the Milky Way is bright.
 - **Physically based look.**
   - Ray-traced planet impostors with atmospheric scattering, eclipses and Saturn's ring shadows.
   - HDR rendering with bloom, eye adaptation, AgX tone mapping and a lens flare.
@@ -84,4 +84,4 @@ The page itself is always fetched from the network when you are online, so a new
 
 ## Credits
 
-Planet and moon maps come from Solar System Scope (CC BY 4.0), the Celestia project, USGS/NASA, Fourmilab and others. The Milky Way panorama is © ESO/S. Brunier (CC BY 4.0). The star catalogue is Hipparcos via d3-celestial. Full per-file sources and licences are in [CREDITS.md](CREDITS.md).
+Planet and moon maps come from Solar System Scope (CC BY 4.0), the Celestia project, USGS/NASA, Fourmilab and others. The Milky Way combines ESA/Gaia/DPAC's Gaia EDR3 sky map (CC BY-SA 3.0 IGO) with ESO/S. Brunier's panorama (CC BY 4.0). The star catalogue is Hipparcos via d3-celestial. Full per-file sources and licences are in [CREDITS.md](CREDITS.md).

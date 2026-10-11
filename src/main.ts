@@ -1,7 +1,7 @@
 import './style.css';
 import {
   Color, MathUtils, Quaternion, RepeatWrapping, SRGBColorSpace, TextureLoader, Vector2, Vector3, WebGLRenderer,
-  LinearMipmapLinearFilter, NoToneMapping,
+  LinearMipmapLinearFilter, NoToneMapping, type Texture,
 } from 'three';
 import { Ephemeris } from './sim/ephemeris';
 import { AU_KM, C_KMS, DAY_MS, WARP_FACTORS, type WarpFactor } from './sim/constants';
@@ -43,13 +43,15 @@ interface Preset {
   maxTexture: number;
   shadow: number;
   milkyWay: number;
+  /** layers of faint made-up stars inside the Milky Way (see sky.ts) */
+  starLayers: number;
 }
 
 const PRESETS: Record<Quality, Preset> = {
-  low: { pixelRatio: 0.75, aa: false, sharpen: 0, maxTexture: 2048, shadow: 1024, milkyWay: 2048 },
-  medium: { pixelRatio: 1, aa: true, sharpen: 0.2, maxTexture: 4096, shadow: 2048, milkyWay: 6000 },
-  high: { pixelRatio: 1.25, aa: true, sharpen: 0.3, maxTexture: 8192, shadow: 2048, milkyWay: 6000 },
-  ultra: { pixelRatio: 1.5, aa: true, sharpen: 0.3, maxTexture: 8192, shadow: 2048, milkyWay: 6000 },
+  low: { pixelRatio: 0.75, aa: false, sharpen: 0, maxTexture: 2048, shadow: 1024, milkyWay: 4096, starLayers: 2 },
+  medium: { pixelRatio: 1, aa: true, sharpen: 0.2, maxTexture: 4096, shadow: 2048, milkyWay: 6000, starLayers: 3 },
+  high: { pixelRatio: 1.25, aa: true, sharpen: 0.3, maxTexture: 8192, shadow: 2048, milkyWay: 6000, starLayers: 4 },
+  ultra: { pixelRatio: 1.5, aa: true, sharpen: 0.3, maxTexture: 8192, shadow: 2048, milkyWay: 6000, starLayers: 4 },
 };
 
 const TIME_SCALES = [1, 10, 100, 1000, 10_000, 100_000, 1_000_000];
@@ -131,7 +133,7 @@ async function main(): Promise<void> {
 
   // --- rendering
   const universe = new Universe(renderer, eph, preset.maxTexture);
-  const sky = new Sky();
+  const sky = new Sky(preset.starLayers);
   const post = new PostPipeline(renderer);
   // per-pass costs for the performance readout
   const prof = new FrameProfiler(renderer);
@@ -152,16 +154,27 @@ async function main(): Promise<void> {
     bar.style.width = `${Math.round(p * 100)}%`;
     loadPct.textContent = `${Math.round(p * 100)}%`;
   };
-  const loadSky = (w: number) =>
-    new TextureLoader().loadAsync(`${BASE}textures/sky/milkyway_${w}.webp`).then((t) => {
+  // the Milky Way: a small one to start with, then the size the quality setting asks for
+  let skyWanted = 0;
+  let skyTex: Texture | null = null;
+  const loadSky = (w: number) => {
+    skyWanted = w;
+    return new TextureLoader().loadAsync(`${BASE}textures/sky/galaxy_${w}.webp`).then((t) => {
+      // a slower, superseded download must not replace the one asked for since
+      if (w !== skyWanted && (skyTex?.image as { width?: number } | undefined)?.width === skyWanted) {
+        t.dispose();
+        return;
+      }
       t.colorSpace = SRGBColorSpace;
       t.wrapS = RepeatWrapping;
       t.minFilter = LinearMipmapLinearFilter;
       t.anisotropy = 4;
       sky.setMilkyWay(t);
       env.setMilkyWay(t);
-      return t;
+      skyTex?.dispose();
+      skyTex = t;
     });
+  };
   loadText.textContent = 'Loading';
   await Promise.all([
     universe.preload((f) => {
@@ -267,7 +280,8 @@ async function main(): Promise<void> {
       shipView.sun.shadow.map = null;
       shadowAge = Infinity;
       if (texChanged) universe.textures.maxWidth = Math.min(preset.maxTexture, renderer.capabilities.maxTextureSize);
-      if (preset.milkyWay > 2048) void loadSky(preset.milkyWay);
+      if (preset.milkyWay !== skyWanted) void loadSky(preset.milkyWay);
+      sky.setStarLayers(preset.starLayers);
       dynScale = 1;
       resize();
     }
@@ -464,6 +478,12 @@ async function main(): Promise<void> {
     face: (id: string) => {
       const d = new Vector3().subVectors(eph.get(id).pos, ship.absPos(new Vector3())).normalize();
       lookQuat(d, new Vector3(0, 1, 0), ship.quat);
+    },
+    /** points the ship at galactic longitude / latitude (degrees), e.g. (0, 0) = galactic centre */
+    faceSky: (lDeg: number, bDeg: number) => {
+      const l = MathUtils.degToRad(lDeg), b = MathUtils.degToRad(bDeg);
+      const g = new Vector3(Math.cos(b) * Math.cos(l), Math.cos(b) * Math.sin(l), Math.sin(b));
+      lookQuat(g.applyMatrix3(worldToGalactic().transpose()), new Vector3(0, 1, 0), ship.quat);
     },
     /** moves the ship next to a body (distance from its centre in km), sun behind */
     teleport: (id: string, km: number) => {

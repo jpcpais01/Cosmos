@@ -42,8 +42,8 @@ export default defineConfig({
         // app shell + the always-needed data; planet maps are cached on first use.
         // index.html is left out: it comes from the network whenever online (below), so a new
         // deploy shows up on the next load instead of one load later.
-        globPatterns: ['**/*.{js,css,svg,ico}', 'icons/*.png', 'data/stars.bin', 'models/*', 'textures/sky/milkyway_2048.webp'],
-        globIgnores: ['**/textures/**/!(milkyway_2048).webp'],
+        globPatterns: ['**/*.{js,css,svg,ico}', 'icons/*.png', 'data/stars.bin', 'models/*', 'textures/sky/galaxy_2048.webp'],
+        globIgnores: ['**/textures/**/!(galaxy_2048).webp'],
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
         navigateFallback: null,
         cleanupOutdatedCaches: true,
