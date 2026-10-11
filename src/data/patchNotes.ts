@@ -11,6 +11,11 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     date: '2026-10-11',
+    title: 'Fewer triangles for the stars',
+    notes: ['Only the stars bright enough to see are drawn each frame (a few thousand instead of all 112,000), so the triangle count in the cost panel drops by about 200k with the same sky.'],
+  },
+  {
+    date: '2026-10-11',
     title: 'Clear Earth, faster and sharper close to planets',
     notes: [
       'Earth no longer has a painted cloud layer over it, so the full 8K surface shows. The thin white lines across the land (rivers catching the sun\'s glint) are gone too; only open water glints.',

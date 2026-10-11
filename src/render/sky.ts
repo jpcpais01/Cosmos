@@ -102,6 +102,8 @@ export class Sky {
   private bgMat: ShaderMaterial;
   private starMat: ShaderMaterial;
   private stars?: Mesh;
+  /** catalogue magnitudes, brightest first (the instance order) */
+  private starMags?: Float32Array;
   private w2g = worldToGalactic();
   private viewProj = new Matrix4();
 
@@ -268,15 +270,20 @@ void main() {
     const buf = await (await fetch(url)).arrayBuffer();
     const n = buf.byteLength / 8;
     const dv = new DataView(buf);
+    // brightest first, so each frame draws only the prefix of stars bright enough to show
+    const order = Array.from({ length: n }, (_, i) => i).sort((a, b) => dv.getUint8(a * 8 + 6) - dv.getUint8(b * 8 + 6));
     const dirs = new Int16Array(n * 3);
     const mb = new Uint8Array(n * 2);
-    for (let i = 0; i < n; i++) {
-      dirs[i * 3] = dv.getInt16(i * 8, true);
-      dirs[i * 3 + 1] = dv.getInt16(i * 8 + 2, true);
-      dirs[i * 3 + 2] = dv.getInt16(i * 8 + 4, true);
-      mb[i * 2] = dv.getUint8(i * 8 + 6);
-      mb[i * 2 + 1] = dv.getUint8(i * 8 + 7);
-    }
+    const mags = new Float32Array(n);
+    order.forEach((src, i) => {
+      dirs[i * 3] = dv.getInt16(src * 8, true);
+      dirs[i * 3 + 1] = dv.getInt16(src * 8 + 2, true);
+      dirs[i * 3 + 2] = dv.getInt16(src * 8 + 4, true);
+      mb[i * 2] = dv.getUint8(src * 8 + 6);
+      mb[i * 2 + 1] = dv.getUint8(src * 8 + 7);
+      mags[i] = mb[i * 2] / 16 - 2;
+    });
+    this.starMags = mags;
     const g = new InstancedBufferGeometry();
     // quad: x along (0..1), y across (-1..1)
     g.setAttribute('position', new BufferAttribute(new Float32Array([0, -1, 0, 1, -1, 0, 1, 1, 0, 0, 1, 0]), 3));
@@ -315,5 +322,18 @@ void main() {
     su.uBrightness.value = brightness * (1 - Math.min(1, warp));
     (su.uVel.value as Vector3).copy(vel);
     su.uBeta.value = beta;
+    // skip the stars the vertex shader would drop as too faint (I < 0.004, with up to 3x Doppler boost)
+    const mags = this.starMags;
+    if (this.stars && mags) {
+      const peak = 1.5 * su.uBrightness.value * (beta > 0 ? 3 : 1);
+      const limit = peak > 0 ? Math.log10(peak / 0.004) / (0.4 * 0.58) : -Infinity;
+      let lo = 0, hi = mags.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (mags[mid] <= limit) lo = mid + 1;
+        else hi = mid;
+      }
+      (this.stars.geometry as InstancedBufferGeometry).instanceCount = lo;
+    }
   }
 }
