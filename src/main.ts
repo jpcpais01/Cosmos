@@ -97,6 +97,7 @@ async function main(): Promise<void> {
   const bar = $('load-bar');
   const loadText = $('load-text');
   startSplashStars($<HTMLCanvasElement>('load-stars'));
+  const loadPct = $('load-pct');
   if (!webglAvailable()) {
     loadText.textContent = 'This experience needs WebGL 2. Please use a recent Chrome, Edge, Firefox or Safari.';
     return;
@@ -138,7 +139,7 @@ async function main(): Promise<void> {
   const showProgress = () => {
     const p = progress.tex * 0.55 + progress.stars * 0.15 + progress.ship * 0.2 + progress.sky * 0.1;
     bar.style.width = `${Math.round(p * 100)}%`;
-    loadText.textContent = `Loading the Solar System · ${Math.round(p * 100)}%`;
+    loadPct.textContent = `${Math.round(p * 100)}%`;
   };
   const loadSky = (w: number) =>
     new TextureLoader().loadAsync(`${BASE}textures/sky/milkyway_${w}.webp`).then((t) => {
@@ -150,7 +151,7 @@ async function main(): Promise<void> {
       env.setMilkyWay(t);
       return t;
     });
-  loadText.textContent = 'Loading the Solar System';
+  loadText.textContent = 'Loading';
   await Promise.all([
     universe.preload((f) => {
       progress.tex = f;
@@ -170,6 +171,7 @@ async function main(): Promise<void> {
     }),
   ]).catch((e: unknown) => {
     loadText.textContent = `Failed to load: ${String(e)}`;
+    loadPct.textContent = '';
     throw e;
   });
   if (preset.milkyWay > 2048) void loadSky(preset.milkyWay);
@@ -378,6 +380,13 @@ async function main(): Promise<void> {
   const startView = params.get('view');
   if (startView === 'chase' || startView === 'far' || startView === 'cockpit') rig.setMode(startView);
   hud.closePanels();
+  // title screen: the scene plays behind it from a slow far-chase orbit; flight starts in `launchView`
+  let intro = !params.has('autostart');
+  const launchView = rig.mode;
+  if (intro) {
+    rig.setMode('far');
+    rig.lookPitch = 0.08;
+  }
   shipView.configureShadows(rig.mode === 'cockpit');
 
   const dbg = { canopy: true, bloom: 1, adapt: 1, cabin: 1, speed: 1 };
@@ -445,38 +454,6 @@ async function main(): Promise<void> {
       fps: Math.round(1 / Math.max(fpsAvg, 1e-3)),
     }),
   };
-
-  // launch screen
-  loadText.textContent = 'Ready';
-  loading.classList.add('ready');
-  const start = $('start');
-  start.classList.remove('hidden');
-  if (!params.has('autostart')) {
-    start.focus({ preventScroll: true });
-    await new Promise<void>((resolve) => {
-      start.addEventListener('click', () => resolve(), { once: true });
-    });
-    // on phones and tablets, go full screen and hold landscape (where the browser allows it)
-    if (matchMedia('(pointer: coarse)').matches) {
-      try {
-        await document.documentElement.requestFullscreen?.({ navigationUI: 'hide' });
-        await (screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> }).lock?.('landscape');
-      } catch {
-        /* not supported (iOS Safari) or refused: the rotate prompt covers it */
-      }
-    }
-  }
-  document.body.classList.add('playing');
-  sound.start();
-  sound.setMuted(!settings.sound);
-  loading.classList.add('done');
-  window.setTimeout(() => loading.remove(), 1200);
-  hud.toast(
-    matchMedia('(pointer: coarse)').matches
-      ? 'Welcome aboard. Left thumb steers, right thumb sets the throttle.'
-      : 'Welcome aboard. Press H for controls, M for the map.',
-    5000,
-  );
 
   // Look for a new version whenever the app comes back to the foreground, and every 30 minutes.
   // When one takes over while the game is open, light up the update button rather than reload mid-flight.
@@ -617,14 +594,19 @@ async function main(): Promise<void> {
       }
     }
 
-    handleKeys();
+    if (intro) {
+      // nothing flies the ship on the title screen; the camera drifts around it
+      input.consumePressed();
+      input.consumeLook();
+      rig.lookYaw += dt * 0.04;
+    } else handleKeys();
     const timeScale = paused ? 0 : TIME_SCALES[timeIdx];
     simMs += dt * 1000 * timeScale;
     eph.update(simMs);
 
     // flight
     const fi = input.flight();
-    const blocked = map.open || hud.panelOpen;
+    const blocked = intro || map.open || hud.panelOpen;
     if (blocked) {
       fi.pitch = fi.yaw = fi.roll = fi.throttleDelta = fi.mousePitch = fi.mouseYaw = 0;
       fi.boost = fi.brake = false;
@@ -868,6 +850,63 @@ async function main(): Promise<void> {
   };
 
   requestAnimationFrame(frame);
+
+  // --- title screen, shown over the running scene once its first frames are drawn
+  if (intro) {
+    await new Promise<void>((resolve) => {
+      let n = 0;
+      const tick = () => (++n > 3 ? resolve() : requestAnimationFrame(tick));
+      requestAnimationFrame(tick);
+    });
+    loading.classList.add('ready');
+    window.setTimeout(() => document.getElementById('load-stars')?.remove(), 2000);
+    const start = $<HTMLButtonElement>('start');
+    await new Promise<void>((resolve) => {
+      const go = () => {
+        window.removeEventListener('keydown', onKey);
+        resolve();
+      };
+      const onKey = (e: KeyboardEvent) => {
+        if (e.code === 'Enter' || e.code === 'NumpadEnter' || e.code === 'Space') {
+          e.preventDefault();
+          go();
+        }
+      };
+      start.addEventListener('click', go, { once: true });
+      window.addEventListener('keydown', onKey);
+    });
+    // on phones and tablets, go full screen and hold landscape (where the browser allows it)
+    if (matchMedia('(pointer: coarse)').matches) {
+      try {
+        await document.documentElement.requestFullscreen?.({ navigationUI: 'hide' });
+        await (screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> }).lock?.('landscape');
+      } catch {
+        /* not supported (iOS Safari) or refused: the rotate prompt covers it */
+      }
+    }
+  }
+  document.body.classList.add('playing');
+  sound.start();
+  sound.setMuted(!settings.sound);
+  if (intro) {
+    // dip to black, cut to the flight view, then fade back in with the HUD
+    loading.classList.add('done');
+    fade.classList.add('dip');
+    await new Promise((r) => window.setTimeout(r, 550));
+    intro = false;
+    rig.setMode(launchView);
+    shipView.configureShadows(launchView === 'cockpit');
+    fade.classList.remove('dip');
+  }
+  document.body.classList.remove('intro');
+  loading.classList.add('done');
+  window.setTimeout(() => loading.remove(), 1200);
+  hud.toast(
+    matchMedia('(pointer: coarse)').matches
+      ? 'Welcome aboard. Left thumb steers, right thumb sets the throttle.'
+      : 'Welcome aboard. Press H for controls, M for the map.',
+    5000,
+  );
 }
 
 void main();
