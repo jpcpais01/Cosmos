@@ -5,6 +5,10 @@ with a full cockpit interior, bakes ambient occlusion with Cycles and exports a 
 Run with Blender's Python module:  python build_ship.py <out_dir>
 Blender axes: X right, Y forward (nose), Z up. Units: metres.
 glTF export converts to Y-up / -Z forward (three.js convention).
+
+The pilot (tools/ship/pilot.py) is built into the same file. To produce the shipped assets:
+  npx @gltf-transform/cli meshopt <out_dir>/ship_raw.glb public/models/ship.glb
+and convert hull_ao.png / cockpit_ao.png to WebP (quality 75) in public/models/.
 """
 import math
 import os
@@ -13,6 +17,9 @@ import sys
 import bpy  # noqa: E402  (must be imported before bmesh)
 import bmesh
 from mathutils import Vector
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import pilot  # noqa: E402
 
 OUT = sys.argv[-1] if len(sys.argv) > 1 else '.'
 os.makedirs(OUT, exist_ok=True)
@@ -182,6 +189,21 @@ M_GLASS = material('Glass', (0.02, 0.025, 0.03), 0.05)
 M_GLOW = material('EngineGlow', (0.0, 0.0, 0.0), 1.0, 0, emit=(0.4, 0.7, 1.0))
 M_SCREEN = material('Screen', (0.0, 0.0, 0.0), 0.2)
 M_BUTTONS = material('Buttons', (0.02, 0.02, 0.02), 0.4, 0, emit=(1.0, 0.6, 0.2))
+# pilot
+PILOT_MATS = {
+    'Suit': material('PilotSuit', (0.11, 0.12, 0.135), 0.8),
+    'Neck': material('PilotNeck', (0.03, 0.03, 0.035), 0.8),
+    'Armor': material('PilotArmor', (0.78, 0.79, 0.8), 0.35),
+    'Glove': material('PilotGlove', (0.05, 0.048, 0.045), 0.55),
+    'Boot': material('PilotBoot', (0.03, 0.03, 0.032), 0.6),
+    'Strap': material('PilotStrap', (0.045, 0.045, 0.05), 0.75),
+    'Buckle': material('PilotBuckle', (0.5, 0.5, 0.52), 0.3, 1.0),
+    'Helmet': material('PilotHelmet', (0.82, 0.83, 0.84), 0.3),
+    'Visor': material('PilotVisor', (0.6, 0.45, 0.2), 0.05, 1.0),
+    'Accent': material('PilotAccent', (0.9, 0.42, 0.08), 0.35),
+    'Stripe': material('PilotStripe', (0.9, 0.42, 0.08), 0.35),
+    'HelmetTrim': material('PilotHelmetTrim', (0.04, 0.04, 0.045), 0.5),
+}
 
 # ---------------------------------------------------------------- fuselage
 Y_TAIL, Y_NOSE = -6.6, 7.75
@@ -430,27 +452,88 @@ def screen(name, cx, w, h, tilt_y):
 
 SCREENS = [screen('ScreenL', -0.47, 0.32, 0.22, 0), screen('ScreenC', 0.0, 0.42, 0.25, 0), screen('ScreenR', 0.47, 0.32, 0.22, 0)]
 
-# side consoles with buttons, throttle (left) and flight stick (right)
+# side consoles with buttons
 for side in (1, -1):
     box('SideConsole', (side * 0.6, 2.25, 0.62), (0.3, 1.5, 0.22), M_PANEL, 0.03, rot=(0, side * -0.2, 0))
     box('SideConsoleBase', (side * 0.64, 2.25, 0.36), (0.26, 1.5, 0.42), M_INTERIOR, 0.02)
     for r in range(3):
         for c in range(4):
             box('Button', (side * (0.55 + r * 0.06), 1.85 + c * 0.11, 0.735 + r * side * 0.012 * side), (0.035, 0.05, 0.02), M_BUTTONS, 0.004)
-# throttle lever
-cylinder('ThrottleBase', (-0.6, 2.6, 0.75), 0.05, 0.06, M_TRIM, rot=(0, 0, 0))
-tube_along('ThrottleArm', [(-0.6, 2.6, 0.76), (-0.6, 2.72, 0.95)], 0.022, M_METAL)
-box('ThrottleGrip', (-0.6, 2.74, 1.0), (0.07, 0.12, 0.09), M_SEAT, 0.02)
-# stick
-cylinder('StickBase', (0.6, 2.6, 0.75), 0.06, 0.06, M_TRIM, rot=(0, 0, 0))
-tube_along('StickArm', [(0.6, 2.6, 0.76), (0.6, 2.62, 0.95)], 0.02, M_METAL)
-box('StickGrip', (0.6, 2.63, 1.02), (0.06, 0.08, 0.16), M_SEAT, 0.025)
+# seat: upright racing-style shell, sized around the pilot in tools/ship/pilot.py
+box('SeatBase', (0, 1.655, 0.64), (0.54, 0.56, 0.12), M_SEAT, 0.04, rot=(0.05, 0, 0))
+box('SeatBack', (0, 1.30, 1.10), (0.52, 0.12, 0.80), M_SEAT, 0.05, rot=(0.05, 0, 0))
+box('Headrest', (0, 1.25, 1.60), (0.30, 0.11, 0.22), M_SEAT, 0.04, rot=(0.05, 0, 0))
+for side in (1, -1):
+    box('SeatBolster', (side * 0.255, 1.36, 1.02), (0.07, 0.17, 0.52), M_SEAT, 0.03, rot=(0.05, 0, side * 0.12))
+    box('SeatBolster', (side * 0.25, 1.66, 0.69), (0.07, 0.5, 0.08), M_SEAT, 0.03, rot=(0.05, 0, 0))
+box('SeatFrame', (0, 1.55, 0.36), (0.40, 0.56, 0.48), M_TRIM, 0.02)
+box('SeatFrame', (0, 1.24, 0.75), (0.30, 0.06, 0.80), M_TRIM, 0.02, rot=(0.05, 0, 0))
+# foot rest with a pedal under each boot
+box('FootRest', (0, 2.33, 0.26), (0.62, 0.42, 0.28), M_INTERIOR, 0.03, rot=(-0.06, 0, 0))
+for side in (1, -1):
+    box('Pedal', (side * 0.148, 2.31, 0.405), (0.12, 0.34, 0.025), M_TRIM, 0.008, rot=(-0.06, 0, 0))
+    box('Pedal', (side * 0.148, 2.31, 0.418), (0.02, 0.30, 0.004), M_ACCENT, 0.0, rot=(-0.06, 0, 0))
 
-# seat
-box('SeatBase', (0, 1.55, 0.36), (0.6, 0.62, 0.16), M_SEAT, 0.05)
-box('SeatBack', (0, 1.15, 0.85), (0.58, 0.16, 0.95), M_SEAT, 0.06, rot=(-0.25, 0, 0))
-box('Headrest', (0, 1.02, 1.42), (0.36, 0.14, 0.24), M_SEAT, 0.05, rot=(-0.25, 0, 0))
-box('SeatFrame', (0, 1.3, 0.2), (0.4, 0.7, 0.16), M_TRIM, 0.02)
+# control pods beside the knees: flight stick (right) and throttle (left)
+POD_TOP = pilot.STICK_PIVOT.z - 0.012
+for side in (1, -1):
+    px = pilot.GRIP[side].x
+    pv = pilot.STICK_PIVOT if side > 0 else pilot.THROTTLE_PIVOT
+    x0, x1 = abs(px) - 0.06, 0.45
+    box('ControlPod', (side * 0.40, pv.y, (0.12 + POD_TOP - 0.05) / 2), (0.10, 0.18, POD_TOP - 0.17), M_PANEL, 0.025)
+    box('ControlPod', (side * (x0 + x1) / 2, pv.y, POD_TOP - 0.035), (x1 - x0, 0.20, 0.07), M_PANEL, 0.02)
+    for c in range(3):
+        box('Button', (side * 0.41, pv.y - 0.05 + c * 0.05, POD_TOP + 0.002), (0.03, 0.03, 0.012), M_BUTTONS, 0.004)
+cylinder('ControlPodCap', (pilot.GRIP[1].x, pilot.STICK_PIVOT.y, POD_TOP + 0.005), 0.046, 0.016, M_TRIM, rot=(0, 0, 0), verts=32)
+box('ControlPodCap', (pilot.GRIP[-1].x, pilot.THROTTLE_PIVOT.y, POD_TOP + 0.004), (0.07, 0.20, 0.014), M_TRIM, 0.004)
+box('ControlPodSlot', (pilot.GRIP[-1].x, pilot.THROTTLE_PIVOT.y, POD_TOP + 0.011), (0.016, 0.17, 0.004), M_INTERIOR, 0.0)
+
+
+def lever(name, pivot, shaft_len, top_buttons):
+    """A grip on a shaft, pointing along pilot.GRIP_UP from the pivot; joined later with its origin at the pivot."""
+    up = pilot.GRIP_UP
+    parts = []
+    centre = pivot + up * shaft_len
+    # shaft and boot
+    parts.append(tube_along(name + 'Shaft', [tuple(pivot - up * 0.02), tuple(centre + up * (pilot.GRIP_BOTTOM + 0.01))], 0.011, M_METAL))
+    bpy.ops.mesh.primitive_uv_sphere_add(radius=0.026, location=tuple(pivot), segments=24, ring_count=12)
+    ball = bpy.context.active_object
+    ball.name = name + 'Ball'
+    ball.data.materials.append(M_TRIM)
+    for p in ball.data.polygons:
+        p.use_smooth = True
+    parts.append(ball)
+    # grip: lathe with an ergonomic profile
+    prof = [(pilot.GRIP_BOTTOM - 0.004, 0.0), (pilot.GRIP_BOTTOM, 0.021), (pilot.GRIP_BOTTOM + 0.02, 0.0205),
+            (-0.02, 0.021), (0.02, 0.0215), (pilot.GRIP_TOP - 0.012, 0.0235), (pilot.GRIP_TOP - 0.002, 0.0215),
+            (pilot.GRIP_TOP + 0.002, 0.012), (pilot.GRIP_TOP + 0.004, 0.0)]
+    m = 28
+    side = Vector((1, 0, 0))
+    fwd = up.cross(side) * -1
+    verts, faces = [], []
+    for z, r in prof:
+        for k in range(m):
+            a = 2 * math.pi * k / m
+            verts.append(tuple(centre + up * z + side * (r * math.cos(a)) + fwd * (r * 1.08 * math.sin(a))))
+    for i in range(len(prof) - 1):
+        for k in range(m):
+            a, b = i * m + k, i * m + (k + 1) % m
+            faces.append((a, b, b + m, a + m))
+    parts.append(make_mesh(name + 'Grip', verts, faces, M_SEAT))
+    for i, (dx, dy) in enumerate(top_buttons):
+        p = centre + up * (pilot.GRIP_TOP + 0.002) + side * dx + fwd * dy
+        parts.append(cylinder(name + 'Btn', tuple(p), 0.0055, 0.008, M_BUTTONS, rot=(-pilot.GRIP_TILT, 0, 0), verts=12))
+    # guard ring under the hand
+    parts.append(cylinder(name + 'Collar', tuple(centre + up * (pilot.GRIP_BOTTOM - 0.002)), 0.026, 0.01, M_TRIM,
+                          rot=(-pilot.GRIP_TILT, 0, 0), verts=28, bevel=0.003))
+    return parts, pivot
+
+
+LEVERS = {
+    'StickLever': lever('StickLever', pilot.STICK_PIVOT, 0.13, [(-0.008, 0.012), (0.009, 0.010)]),
+    'ThrottleLever': lever('ThrottleLever', pilot.THROTTLE_PIVOT, 0.19, [(0.0, 0.014)]),
+}
+
 # overhead panel at the rear arch
 box('OverheadPanel', (0, 1.05, 1.82), (0.5, 0.18, 0.06), M_PANEL, 0.015, rot=(0.4, 0, 0))
 
@@ -461,7 +544,7 @@ def marker(name, loc):
     scene.collection.objects.link(e)
 
 
-EYE = (0.0, 1.62, 1.42)
+EYE = tuple(pilot.EYE)
 marker('EyePoint', EYE)
 marker('NavLeft', (-5.62, -3.6, -0.24))
 marker('NavRight', (5.62, -3.6, -0.24))
@@ -491,13 +574,35 @@ def apply_and_join(objs, name):
     return ob
 
 
-INTERIOR_NAMES = ('Tub', 'RearBulkhead', 'FrontBulkhead', 'Dashboard', 'GlareShield', 'SideConsole', 'Button', 'Throttle',
-                  'Stick', 'Seat', 'Headrest', 'OverheadPanel', 'Screen')
+INTERIOR_NAMES = ('Tub', 'RearBulkhead', 'FrontBulkhead', 'Dashboard', 'GlareShield', 'SideConsole', 'Button', 'ControlPod',
+                  'Seat', 'Headrest', 'OverheadPanel', 'Screen', 'FootRest', 'Pedal')
+# the moving levers become objects of their own, hung from an empty at the pivot (the empty is what the
+# game rotates; the mesh node below it may get a quantisation transform from gltf-transform)
+levers = {}
+for name, (objs, pivot) in LEVERS.items():
+    ob = apply_and_join(objs, name + 'Mesh')
+    bpy.context.view_layer.objects.active = ob
+    ob.select_set(True)
+    try:
+        bpy.ops.object.shade_auto_smooth(angle=math.radians(38))
+    except Exception as e:
+        print('auto smooth failed', e)
+    ob.select_set(False)
+    holder = bpy.data.objects.new(name, None)
+    holder.location = pivot
+    scene.collection.objects.link(holder)
+    bpy.context.view_layer.update()
+    ob.parent = holder
+    ob.matrix_parent_inverse = holder.matrix_world.inverted()
+    levers[ob.name] = ob
+
+pilot_rig, pilot_mesh = pilot.build(scene, PILOT_MATS)
+
 exterior, interior = [], []
 for o in list(scene.objects):
     if o.type != 'MESH':
         continue
-    if o.name.startswith(('Canopy', 'EngineGlow')) or o.get('screen'):
+    if o.name.startswith(('Canopy', 'EngineGlow', 'Pilot')) or o.get('screen') or o.name in levers:
         continue
     if o.name.startswith(INTERIOR_NAMES):
         interior.append(o)
@@ -582,6 +687,17 @@ def bake_ao(ob, size, path):
 bake_ao(hull, BAKE_SIZE, os.path.join(OUT, 'hull_ao.png'))
 bake_ao(cockpit, BAKE_SIZE, os.path.join(OUT, 'cockpit_ao.png'))
 
+# the pilot's AO goes into vertex colours (no texture to load, and it survives skinning well enough)
+pilot_mesh.data.color_attributes.new('Color', 'BYTE_COLOR', 'POINT')
+pilot_mesh.data.color_attributes.active_color_name = 'Color'
+scene.render.bake.target = 'VERTEX_COLORS'
+bpy.ops.object.select_all(action='DESELECT')
+bpy.context.view_layer.objects.active = pilot_mesh
+pilot_mesh.select_set(True)
+bpy.ops.object.bake(type='AO', use_clear=True)
+pilot_mesh.select_set(False)
+scene.render.bake.target = 'IMAGE_TEXTURES'
+
 # ---------------------------------------------------------------- export
 bpy.ops.object.select_all(action='SELECT')
 bpy.ops.export_scene.gltf(
@@ -593,6 +709,7 @@ bpy.ops.export_scene.gltf(
     export_normals=True,
     export_materials='EXPORT',
     export_extras=True,
+    export_vertex_color='ACTIVE',
 )
 print('done')
 
@@ -626,4 +743,11 @@ if os.environ.get('PREVIEW'):
     look((0, 0.5, 16), (0, 0.5, 0), 70, 'prev_top.png')
     look((14, 0.5, 0.3), (0, 0.5, 0.3), 60, 'prev_side.png')
     bpy.data.objects['Canopy'].hide_render = True
+    # the pilot, from the side and from the front
+    look((2.6, 1.9, 1.5), (0, 1.75, 1.05), 50, 'prev_pilot_side.png')
+    look((0.9, 3.3, 1.75), (0, 1.75, 1.05), 55, 'prev_pilot_front.png')
+    look((-1.1, 2.6, 1.9), (0, 1.8, 1.05), 55, 'prev_pilot_left.png')
+    # first person: fold the head away so the camera is not inside the helmet
+    pilot_rig.pose.bones['Neck'].scale = (0.001, 0.001, 0.001)
     look(EYE, (0, 9, 0.9), 85, 'prev_cockpit.png')
+    look(EYE, (0, 3.2, 0.4), 85, 'prev_cockpit_down.png')

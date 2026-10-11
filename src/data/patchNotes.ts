@@ -9,6 +9,16 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    version: '0.21',
+    date: '2026-10-11',
+    title: 'Your pilot',
+    notes: [
+      'A suited, helmeted pilot now sits in a new seat, with gloved hands wrapped round the flight stick and throttle.',
+      'The stick tilts and twists as you turn, the throttle follows your thrust, and the arms follow both; in first person you see your own arms and hands.',
+      'The body leans into turns and is pressed back into the seat under boost and warp.',
+    ],
+  },
+  {
     version: '0.20',
     date: '2026-10-11',
     title: 'Cost panel on phones',
