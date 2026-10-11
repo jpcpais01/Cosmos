@@ -27,9 +27,9 @@ const _x = new Vector3();
 const _y = new Vector3();
 const _z = new Vector3();
 
-/** Position of the active system's gate (system frame, km). */
+/** Position of a system's gate (default the active one), in that system's frame (km). */
 export function gatePosition(eph: Ephemeris, out: Vector3, sys: StarSystem = eph.system): Vector3 {
-  return out.copy(eph.star.pos).addScaledVector(sys.gate.dir, sys.gate.distance);
+  return out.copy(eph.get(sys.star).pos).addScaledVector(sys.gate.dir, sys.gate.distance);
 }
 
 /**

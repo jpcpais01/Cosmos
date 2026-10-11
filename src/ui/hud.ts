@@ -600,7 +600,7 @@ export class Hud {
       ['Right-click', 'Mouse flight on / off: the ship smoothly follows the mouse; off gives you the pointer back for buttons'],
       ['Left-drag', 'Look around (cockpit) / orbit camera (outside)'],
       ['V', 'Cockpit → chase → far chase view'],
-      ['M', 'System map: pick a body, the warp gate or any coordinates'],
+      ['M', 'System map: pick a body, the warp gate or any coordinates · Galaxy button for the Milky Way'],
       ['1 – 5', 'Warp factor 1c, 3c, 10c, 50c, 100c'],
       ['J', 'Engage warp / drop out · call off a gate jump'],
       ['Enter', 'Jump through the warp gate when you are near one (or pick a star on the gate panel)'],

@@ -2339,3 +2339,45 @@ body.touch-ui .gate-panel {
   width: 250px;
   padding: 10px 12px;
 }
+
+/* ---------------------------------------------------------------- galaxy map */
+.map > .galaxy {
+  display: none;
+  position: absolute;
+  inset: 0;
+}
+.map.mode-galaxy > .galaxy {
+  display: block;
+}
+.map.mode-galaxy > .map-canvas,
+.map.mode-galaxy > .map-list,
+.map.mode-galaxy > .map-info,
+.map.mode-galaxy > .map-hint {
+  display: none;
+}
+.map-top-right {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.map-mode {
+  letter-spacing: 0.18em;
+  border-color: rgba(170, 130, 255, 0.45);
+}
+.galaxy-actions {
+  display: flex;
+  gap: 8px;
+}
+.galaxy-actions .btn {
+  flex: 1;
+  padding: 9px 6px;
+  letter-spacing: 0.14em;
+  font-size: 13px;
+}
+.map-gate::before {
+  border-radius: 50%;
+  background: none !important;
+  border: 2px solid var(--dot);
+  width: 5px;
+  height: 5px;
+}

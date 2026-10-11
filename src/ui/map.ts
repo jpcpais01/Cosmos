@@ -6,7 +6,9 @@ import { AU_KM, C_KMS, WARP_FACTORS, type WarpFactor } from '../sim/constants';
 import { fmtDistance, fmtDuration } from './format';
 import { bodyRgb, drawBody } from './bodyGlyph';
 import { GATE, gatePosition } from '../game/gate';
-import { SYSTEMS, lightYearsBetween } from '../sim/systems';
+import { SYSTEMS, SYSTEM_BY_ID, lightYearsBetween, type StarSystem } from '../sim/systems';
+import { systemOf } from '../sim/bodies';
+import { GalaxyMap } from './galaxy';
 
 const FONT = "'Rajdhani', 'Segoe UI', system-ui, sans-serif";
 const AMBER = 'rgba(255,179,71,0.95)';
@@ -92,6 +94,12 @@ export class SystemMap {
   /** where the warp gate was drawn last frame (screen px) */
   private gateXY: [number, number] | null = null;
   private gateButton: HTMLButtonElement | null = null;
+  /** the star system on show (another one than the ship's can be looked at, not flown to) */
+  private view = 'sol';
+  private bodies: BodyState[] = [];
+  private mode: 'system' | 'galaxy' = 'system';
+  readonly galaxy = new GalaxyMap();
+  private modeBtn = el('button', 'btn map-mode', 'GALAXY');
   private pointers = new Map<number, { x: number; y: number }>();
   private dragDist = 0;
   private pinch0 = 0;
@@ -111,25 +119,45 @@ export class SystemMap {
   constructor(private eph: Ephemeris, private ship: Ship, private warp: WarpDrive) {
     const top = el('div', 'map-top');
     top.append(this.title);
+    const right = el('div', 'map-top-right');
+    this.modeBtn.title = 'Switch between this star system and the galaxy';
+    this.modeBtn.onclick = () => this.setMode(this.mode === 'system' ? 'galaxy' : 'system');
+    right.append(this.modeBtn);
     const close = el('button', 'btn icon', '✕');
     close.title = 'Close map (M / Esc)';
     close.onclick = () => this.onClose?.();
-    top.append(close);
+    right.append(close);
+    top.append(right);
     const hint = el('div', 'map-hint', 'Scroll or pinch to zoom · drag to pan · tap a body to select it, or empty space for coordinates');
-    this.root.append(this.canvas, top, this.list, this.info, hint);
+    this.root.append(this.canvas, this.galaxy.root, top, this.list, this.info, hint);
+    this.galaxy.onView = (id) => {
+      this.view = id;
+      this.setMode('system');
+      this.buildList();
+      this.focusBody(SYSTEM_BY_ID[id].star, false);
+      this.selection = id === this.eph.system.id ? this.warp.target : null;
+      this.renderInfo();
+    };
+    this.galaxy.onCourse = () => {
+      this.view = this.eph.system.id;
+      this.setMode('system');
+      this.buildList();
+      this.focusGate();
+    };
     this.buildList();
     this.bindPointer();
   }
 
   /** Body list and title for the system the ship is in. */
   private buildList(): void {
-    const sys = this.eph.system;
+    const sys = this.viewSys;
     this.listSystem = sys.id;
-    this.title.innerHTML = `${sys.name.toUpperCase()} <span>true sizes and distances</span>`;
+    this.bodies = this.eph.all.filter((b) => systemOf(b.def.id) === sys.id);
+    this.setTitle();
     this.list.innerHTML = '';
     this.listButtons.clear();
-    const star = this.eph.star;
-    const groups: BodyState[] = this.eph.list.filter((s) => s === star || s.parent === star);
+    const star = this.star;
+    const groups: BodyState[] = this.bodies.filter((s) => s === star || s.parent === star);
     const button = (s: BodyState, cls: string) => {
       const b = el('button', cls, s.def.name);
       b.style.setProperty('--dot', bodyRgb(s.def.color, 1.05));
@@ -157,11 +185,43 @@ export class SystemMap {
     this.list.append(row);
   }
 
+  private get viewSys(): StarSystem {
+    return SYSTEM_BY_ID[this.view] ?? this.eph.system;
+  }
+
+  /** The star of the system on show. */
+  private get star(): BodyState {
+    return this.eph.get(this.viewSys.star);
+  }
+
+  /** Looking at another star system than the ship's (nothing there can be a warp target). */
+  private get remote(): boolean {
+    return this.view !== this.eph.system.id;
+  }
+
+  private setTitle(): void {
+    if (this.mode === 'galaxy') {
+      this.title.innerHTML = 'MILKY WAY <span>a model of the galaxy, the stars at their real positions</span>';
+      return;
+    }
+    const sys = this.viewSys;
+    const away = this.remote ? ` · ${Math.round(lightYearsBetween(this.eph.system, sys)).toLocaleString('en-US')} light years away` : '';
+    this.title.innerHTML = `${sys.name.toUpperCase()} <span>true sizes and distances${away}</span>`;
+  }
+
+  private setMode(m: 'system' | 'galaxy'): void {
+    this.mode = m;
+    this.root.classList.toggle('mode-galaxy', m === 'galaxy');
+    this.modeBtn.textContent = m === 'galaxy' ? 'STAR SYSTEM' : 'GALAXY';
+    if (m === 'galaxy') this.galaxy.show(this.eph.system.id);
+    this.setTitle();
+  }
+
   /** Centres on the warp gate, with its star in view, and selects it. */
   focusGate(): void {
-    const sys = this.eph.system;
+    const sys = this.viewSys;
     this.follow = null;
-    gatePosition(this.eph, this.center);
+    gatePosition(this.eph, this.center, sys);
     const flat = Math.hypot(sys.gate.dir.x, sys.gate.dir.z) * sys.gate.distance;
     this.targetScale = (Math.min(this.W, this.H) * 0.4) / Math.max(flat * 0.35, AU_KM * 0.05);
     this.select({ kind: 'gate' });
@@ -182,14 +242,17 @@ export class SystemMap {
 
   private select(t: WarpTarget): void {
     this.selection = t;
-    this.onSelect?.(t);
+    // in another star system: shown, never a warp target
+    if (!this.remote) this.onSelect?.(t);
     this.renderInfo();
   }
 
   show(): void {
     this.open = true;
     this.root.classList.remove('hidden');
-    if (this.listSystem !== this.eph.system.id) this.buildList();
+    this.view = this.eph.system.id;
+    if (this.mode === 'galaxy') this.setMode('system');
+    if (this.listSystem !== this.view) this.buildList();
     this.resize();
     // start centred on the ship's system
     const f = this.ship.frame;
@@ -212,6 +275,7 @@ export class SystemMap {
     this.canvas.width = Math.round(this.W * this.dpr) || 1;
     this.canvas.height = Math.round(this.H * this.dpr) || 1;
     this.buildBackground();
+    if (this.mode === 'galaxy') this.galaxy.resize();
   }
 
   /** Deep-space backdrop with faint dust, drawn once per resize and blitted every frame. */
@@ -345,6 +409,7 @@ export class SystemMap {
       this.select({ kind: 'body', id: h.state.def.id });
       return;
     }
+    if (this.remote) return;
     // coordinates: relative to the most relevant body on screen (the focus, else the Sun)
     const p = this.toWorld(x, y, new Vector3());
     const frameId = this.follow ?? this.eph.system.star;
@@ -374,13 +439,20 @@ export class SystemMap {
       this.info.append(el('div', 'info-kind', `${kind} · radius ${Math.round(d.radius).toLocaleString('en-US')} km`));
       this.info.append(el('div', 'info-text', d.info));
     } else if (t.kind === 'gate') {
-      const here = this.eph.system;
+      const here = this.viewSys;
       const to = SYSTEMS.filter((o) => o.id !== here.id)
         .map((o) => `${o.name} (${Math.round(lightYearsBetween(here, o)).toLocaleString('en-US')} light years)`).join(', ');
-      this.info.append(el('div', 'info-kind', `Warp gate · ${(here.gate.distance / AU_KM).toFixed(0)} AU from ${this.eph.star.def.name}`));
+      this.info.append(el('div', 'info-kind', `Warp gate · ${(here.gate.distance / AU_KM).toFixed(0)} AU from ${this.star.def.name}`));
       this.info.append(el('div', 'info-text', `The way to other stars: ${to}. Warp here, fly within ${GATE.range} km and choose a destination at the gate.`));
     } else {
       this.info.append(el('div', 'info-kind', 'Coordinates in the ecliptic plane'));
+    }
+    if (this.remote) {
+      this.info.append(el('div', 'info-dist', `In another star system, ${Math.round(lightYearsBetween(this.eph.system, this.viewSys)).toLocaleString('en-US')} light years away. The warp gate is the way there.`));
+      const go = el('button', 'btn primary', 'SET COURSE FOR THE GATE');
+      go.onclick = () => this.galaxy.onCourse?.();
+      this.info.append(go);
+      return;
     }
     this.distEl = el('div', 'info-dist');
     this.info.append(this.distEl);
@@ -413,7 +485,7 @@ export class SystemMap {
 
   private updateInfo(): void {
     const t = this.selection;
-    if (!t || !this.distEl) return;
+    if (!t || !this.distEl || this.remote) return;
     const p = this.warp.resolve(_a, t);
     if (!p) return;
     const ship = this.ship.absPos(_b);
@@ -531,6 +603,10 @@ export class SystemMap {
 
   draw(simMs: number, time: number): void {
     if (!this.open) return;
+    if (this.mode === 'galaxy') {
+      this.galaxy.draw(time);
+      return;
+    }
     const { ctx, dpr, W, H } = this;
     // ease the zoom at the same pace whatever the frame rate
     const dt = Math.min(Math.max(time - this.lastTime, 0), 1);
@@ -544,7 +620,7 @@ export class SystemMap {
     ctx.lineWidth = 1;
 
     // AU rings around the star
-    const sun = this.eph.star;
+    const sun = this.star;
     const sx = this.sx(sun.pos.x), sy = this.sy(sun.pos.z);
     const far = Math.hypot(Math.max(sx, W - sx), Math.max(sy, H - sy));
     const near = Math.max(0, Math.hypot(Math.max(0, -sx, sx - W), Math.max(0, -sy, sy - H)));
@@ -568,7 +644,7 @@ export class SystemMap {
     const sel = this.selection;
     const selId = sel?.kind === 'body' ? sel.id : null;
     let resampled = false;
-    for (const s of this.eph.list) {
+    for (const s of this.bodies) {
       if (!s.parent) continue;
       if (s.pos.distanceTo(s.parent.pos) * sc < 7) continue;
       const o = this.orbit(s, simMs, !resampled);
@@ -592,7 +668,7 @@ export class SystemMap {
     this.labels.length = 0;
     ctx.textBaseline = 'middle';
     for (let depth = 0; depth <= 2; depth++) {
-      for (const s of this.eph.list) {
+      for (const s of this.bodies) {
         if (s.depth !== depth) continue;
         // a moon whose orbit is under a few pixels would sit on top of its planet
         if (depth > 1 && s.pos.distanceTo(s.parent!.pos) * sc < 7) continue;
@@ -619,7 +695,7 @@ export class SystemMap {
 
     // the warp gate: a small ring standing edge-on, in violet
     {
-      const g = gatePosition(this.eph, _a);
+      const g = gatePosition(this.eph, _a, this.viewSys);
       const gx = this.sx(g.x), gy = this.sy(g.z);
       this.gateXY = null;
       if (gx > -40 && gy > -40 && gx < W + 40 && gy < H + 40) {
@@ -643,7 +719,7 @@ export class SystemMap {
     // target: a ring on the body itself, the route to the arrival point beside it
     const shipAbs = this.ship.absPos(_b);
     const shx = this.sx(shipAbs.x), shy = this.sy(shipAbs.z);
-    if (sel) {
+    if (sel && !this.remote) {
       const p = this.warp.resolve(_a, sel);
       if (p) {
         const tx = this.sx(p.x), ty = this.sy(p.z);
@@ -690,6 +766,19 @@ export class SystemMap {
     }
 
     // ship: outlined so the body underneath stays visible; the dot is its exact position
+    if (!this.remote) this.drawShip(shx, shy);
+    this.drawScale(sc, H);
+
+    // the panel's numbers change slowly: a few updates a second is plenty
+    this.infoAge += dt;
+    if (this.infoAge > 0.25) {
+      this.infoAge = 0;
+      this.updateInfo();
+    }
+  }
+
+  private drawShip(shx: number, shy: number): void {
+    const ctx = this.ctx;
     const f = this.ship.forward(_a);
     ctx.save();
     ctx.translate(shx, shy);
@@ -712,7 +801,10 @@ export class SystemMap {
     ctx.fillStyle = '#ffffff';
     ctx.font = `700 11px ${FONT}`;
     ctx.fillText('YOU', shx + 10, shy + 12);
+  }
 
+  private drawScale(sc: number, H: number): void {
+    const ctx = this.ctx;
     // scale bar
     // a round length, in AU once the bar is that long (as it's labelled)
     const unit = 140 / sc > 0.05 * AU_KM ? AU_KM : 1;
@@ -731,12 +823,5 @@ export class SystemMap {
     ctx.fillStyle = 'rgba(220,235,255,0.75)';
     ctx.font = `600 12px ${FONT}`;
     ctx.fillText(fmtDistance(nice), bx, by - 12);
-
-    // the panel's numbers change slowly: a few updates a second is plenty
-    this.infoAge += dt;
-    if (this.infoAge > 0.25) {
-      this.infoAge = 0;
-      this.updateInfo();
-    }
   }
 }
