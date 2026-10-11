@@ -46,7 +46,9 @@ All of these are **CC BY 4.0, © Solar System Scope / INOVE**, based on NASA dat
 
 ## Sky
 
-- **Milky Way panorama**: ESO eso0932a, CC BY 4.0, © ESO/S. Brunier (with Frédéric Tapissier). Its point stars were removed by `tools/build_textures.py`, so the catalogue stars can be drawn sharp on top of it.
+- **Milky Way** (`public/textures/sky/galaxy_*.webp`): built by `tools/build_sky.py` from two maps. Its licence is CC BY-SA 3.0 IGO, because it adapts Gaia's map.
+  - Structure: "Gaia's sky in colour" from Gaia EDR3, **CC BY-SA 3.0 IGO, ESA/Gaia/DPAC**. The plate carrée copy used is `MW_edgeon_edr3_unannotate.jpg` from the mw_plot package (https://github.com/henrysky/milkyway_plot). It was denoised, its point stars were flattened and its levels were mapped onto ESO's brightness.
+  - Colour, broad brightness, and objects Gaia does not show (Andromeda, Triangulum, bright nebulae): ESO eso0932a, **CC BY 4.0, © ESO/S. Brunier** (with Frédéric Tapissier). Its point stars were removed by `tools/build_textures.py`, it was rotated 3.8° onto the true galactic frame, and its seam at longitude 180° was closed.
 - **Stars**: 112,699 stars to magnitude 10.5 from the Hipparcos-based catalogue in d3-celestial (https://github.com/ofrohn/d3-celestial, BSD-3-Clause, © Olaf Frohn). That catalogue derives from ESA's Hipparcos mission. They are packed into `public/data/stars.bin` by `tools/build_stars.py`.
 
 ## Software

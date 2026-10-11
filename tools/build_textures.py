@@ -5,9 +5,9 @@ Usage: python3 tools/build_textures.py <source-dir> <public-dir>
 
 Each body gets map_<width>.webp files (2:1 equirectangular). Earth also gets an
 "aux" map (R = clouds, G = ocean mask, B = city lights) and a normal map. The
-Milky Way panorama (galactic frame) has its stars removed with a grey-scale
-morphological opening so that the real star catalogue can be drawn on top
-as sharp points.
+ESO Milky Way panorama (galactic frame) has its stars removed with a grey-scale
+morphological opening, and tools/build_sky.py combines the result with Gaia's
+map into the textures/sky/galaxy_*.webp maps.
 """
 import os
 import sys
@@ -132,9 +132,9 @@ def build_sky():
     # black point: subtract the dark-sky floor so empty space is black
     floor = Image.new('RGB', mixed.size, (7, 7, 8))
     mixed = ImageChops.subtract(mixed, floor).point(lambda v: min(255, int(v * 2.2)))
-    for w in [2048, 6000]:
-        out = mixed if w == mixed.size[0] else mixed.resize((w, w // 2), Image.LANCZOS)
-        save(out, os.path.join(OUT, 'textures', 'sky', f'milkyway_{w}.webp'))
+    # input for tools/build_sky.py, not shipped
+    out = mixed if mixed.size[0] == 6000 else mixed.resize((6000, 3000), Image.LANCZOS)
+    save(out, os.path.join(OUT, 'eso_starless_6000.webp'))
 
 
 if __name__ == '__main__':

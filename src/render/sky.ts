@@ -44,6 +44,58 @@ vec3 dopplerTint(float D) {
 }
 `;
 
+/**
+ * Faint stars below the catalogue's limit, made up on the fly. Each layer splits the sky into an
+ * equi-angular cube grid and a cell holds at most one star, kept away from the cell's edges so a
+ * pixel only ever looks at its own cell. Finer layers hold fainter stars and switch off once their
+ * cells shrink to a few pixels, where the panorama's glow already carries their light. How crowded
+ * a cell is follows the panorama's brightness, so the Milky Way resolves into stars and dust lanes
+ * stay empty.
+ */
+const FAINT_STARS = /* glsl */ `
+vec3 hash33(vec3 p3) {
+  p3 = fract(p3 * vec3(0.1031, 0.1030, 0.0973));
+  p3 += dot(p3, p3.yxz + 33.33);
+  return fract((p3.xxy + p3.yxx) * p3.zyx);
+}
+vec3 faintStars(vec3 d, float pxPerRad, float px, vec3 crowd) {
+  vec3 a = abs(d);
+  vec2 q;
+  float face;
+  if (a.x >= a.y && a.x >= a.z) { q = d.yz / a.x; face = d.x > 0.0 ? 0.0 : 1.0; }
+  else if (a.y >= a.z) { q = d.zx / a.y; face = d.y > 0.0 ? 2.0 : 3.0; }
+  else { q = d.xy / a.z; face = d.z > 0.0 ? 4.0 : 5.0; }
+  q = atan(q) * (2.0 / PI) + 0.5; // equi-angular, 0..1 across the face
+  float lum = dot(crowd, vec3(0.2126, 0.7152, 0.0722));
+  vec3 tint = crowd / max(lum, 1e-3);
+  float prob = min(0.6, 0.05 + 2.5 * lum);
+  float glow = 0.004 + 1.2 * lum;
+  float sigma = 0.55 * px;
+  vec3 sum = vec3(0.0);
+  float n = 79.0;
+  for (int k = 0; k < STAR_LAYERS; k++) {
+    float cellPx = (0.5 * PI / n) * pxPerRad;
+    float on = smoothstep(6.0 * px, 10.0 * px, cellPx);
+    if (on <= 0.0) break; // layers only get finer
+    vec2 p = q * n;
+    vec2 cell = floor(p);
+    vec3 h = hash33(vec3(cell, face + 6.0 * float(k)));
+    float present = smoothstep(h.x - 0.04, h.x, prob);
+    if (present > 0.0) {
+      vec2 dv = (p - cell - 0.3 - 0.4 * h.yz) * cellPx; // star sits 0.3 cells or more from the edges
+      float r2 = dot(dv, dv);
+      float rMax2 = 0.09 * cellPx * cellPx;
+      vec3 h2 = hash33(vec3(cell.yx + 0.5, face * 7.0 + float(k) + 50.0));
+      float I = glow * (0.25 + 1.75 * h2.x * h2.x * h2.x) * (1.0 - 0.12 * float(k));
+      vec3 col = mix(mix(vec3(0.8, 0.88, 1.18), vec3(1.18, 0.96, 0.75), h2.y), tint, 0.4);
+      sum += col * (I * present * on * exp(-r2 / (2.0 * sigma * sigma)) * (1.0 - smoothstep(0.36 * rMax2, rMax2, r2)));
+    }
+    n *= 1.43;
+  }
+  return sum;
+}
+`;
+
 export class Sky {
   readonly scene = new Scene();
   readonly camera = new OrthographicCamera(-1, 1, 1, -1, 0, 1);
@@ -53,10 +105,12 @@ export class Sky {
   private w2g = worldToGalactic();
   private viewProj = new Matrix4();
 
-  constructor() {
+  /** starLayers: how many layers of faint made-up stars (0 = none), set by the graphics quality */
+  constructor(starLayers = 3) {
     const tri = new BufferGeometry();
     tri.setAttribute('position', new BufferAttribute(new Float32Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]), 3));
     this.bgMat = new ShaderMaterial({
+      defines: { STAR_LAYERS: starLayers },
       vertexShader: /* glsl */ `
 varying vec2 vNdc;
 void main() { vNdc = position.xy; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
@@ -64,22 +118,37 @@ void main() { vNdc = position.xy; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
 ${MATH}
 ${EQUIRECT}
 ${ABERRATION}
+${FAINT_STARS}
 varying vec2 vNdc;
 uniform mat3 uCamRot;
 uniform vec2 uTan;
 uniform mat3 uW2G;
 uniform sampler2D uMilkyWay;
 uniform float uIntensity;
+uniform float uStarGain;
+uniform float uPxPerRad;
+uniform float uPx;
 uniform vec3 uVel;
 uniform float uBeta;
 void main() {
   // view ray from the camera basis (an inverted view-projection is too imprecise with a 1e15 depth range)
-  vec3 dObs = normalize(uCamRot * vec3(vNdc * uTan, -1.0));
+  vec3 ray = vec3(vNdc * uTan, -1.0);
+  vec3 dObs = normalize(uCamRot * ray);
   vec3 d = uBeta > 0.0 ? deaberrate(dObs, uVel, uBeta) : dObs;
   vec3 g = uW2G * d;
   // galactic panorama: centre = galactic centre, longitude increases to the left
   vec2 uv = vec2(0.5 - atan(g.y, g.x) * (0.5 / PI), asin(clamp(g.z, -1.0, 1.0)) / PI + 0.5);
-  vec3 c = sampleEquirect(uMilkyWay, uv).rgb * uIntensity;
+  vec3 tex = sampleEquirect(uMilkyWay, uv).rgb;
+  vec3 c = tex * uIntensity;
+#if STAR_LAYERS > 0
+  if (uStarGain > 0.0) {
+    // pixels per radian here: rectilinear projection stretches off-axis by about 1 / cos^1.5
+    float pxPerRad = uPxPerRad * pow(dot(ray, ray), 0.75);
+    // the panorama is star counts, so its smooth brightness says how crowded the faint stars are
+    vec3 crowd = textureLod(uMilkyWay, uv, 4.0).rgb;
+    c += faintStars(g, pxPerRad, uPx, crowd) * uStarGain;
+  }
+#endif
   if (uBeta > 0.0) {
     float D = doppler(dObs, uVel, uBeta);
     c *= dopplerTint(D) * clamp(D * D, 0.05, 2.5);
@@ -94,6 +163,9 @@ void main() {
         uW2G: { value: this.w2g },
         uMilkyWay: { value: null },
         uIntensity: { value: 0.35 },
+        uStarGain: { value: 1 },
+        uPxPerRad: { value: 1000 },
+        uPx: { value: 1 },
         uVel: { value: new Vector3(0, 0, -1) },
         uBeta: { value: 0 },
       },
@@ -186,6 +258,12 @@ void main() {
     this.bgMat.uniforms.uMilkyWay.value = t;
   }
 
+  setStarLayers(n: number): void {
+    if (this.bgMat.defines.STAR_LAYERS === n) return;
+    this.bgMat.defines.STAR_LAYERS = n;
+    this.bgMat.needsUpdate = true;
+  }
+
   async loadStars(url: string): Promise<number> {
     const buf = await (await fetch(url)).arrayBuffer();
     const n = buf.byteLength / 8;
@@ -224,6 +302,9 @@ void main() {
     // projection: x_ndc = P00 * x / -z  ->  tan of the half-angles
     (bu.uTan.value as Vector2).set(1 / proj.elements[0], 1 / proj.elements[5]);
     bu.uIntensity.value = 0.2 * brightness;
+    bu.uPxPerRad.value = 0.5 * viewportPx.y * proj.elements[5];
+    bu.uPx.value = px;
+    bu.uStarGain.value = brightness * (1 - Math.min(1, warp));
     (bu.uVel.value as Vector3).copy(vel);
     bu.uBeta.value = beta;
     const su = this.starMat.uniforms;

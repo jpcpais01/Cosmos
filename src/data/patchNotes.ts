@@ -11,6 +11,15 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     date: '2026-10-11',
+    title: 'A sharper sky',
+    notes: [
+      'A new Milky Way built from ESA Gaia\'s sky map, with crisp dust lanes, no blotches and no seam.',
+      'It now lines up with the real stars. The old one was rotated about 4 degrees off.',
+      'Thousands of faint stars are drawn sharp inside the Milky Way, more of them on higher graphics settings.',
+    ],
+  },
+  {
+    date: '2026-10-11',
     title: 'No blue spot on the canopy',
     notes: ['The coloured lens reflections from the Sun are gone, including the blue spot that sat near the top of the view when the Sun was just above it.'],
   },
