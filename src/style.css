@@ -1674,20 +1674,37 @@ body.touch-ui .tthr-fill.rev {
 }
 
 /* ---------------------------------------------------------------- touch layout (phones and tablets) */
+/* The flight controls own the screen; everything else is small and tucked into the corners.
+   Top left: the scanner, with where you are and the date beside it. */
+body.touch-ui {
+  --mini-w: 150px;
+  --mini-h: 92px;
+}
 body.touch-ui .hud-tl {
-  left: calc(14px + var(--safe-l));
+  left: calc(14px + var(--mini-w) + 10px + var(--safe-l));
   top: calc(10px + var(--safe-t));
+  max-width: max(96px, calc(50vw - 250px));
+}
+body.touch-ui .hud.no-minimap .hud-tl {
+  left: calc(14px + var(--safe-l));
 }
 body.touch-ui .loc-name {
-  font-size: 15px;
-  letter-spacing: 0.18em;
+  font-size: 12px;
+  letter-spacing: 0.16em;
+}
+body.touch-ui .loc-name,
+body.touch-ui .loc-sub,
+body.touch-ui .date {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 body.touch-ui .loc-sub,
 body.touch-ui .date {
-  font-size: 11px;
+  font-size: 10px;
 }
 body.touch-ui .date {
-  margin-top: 3px;
+  margin-top: 2px;
 }
 body.touch-ui .time-row .btn.small {
   min-width: 36px;
@@ -1697,8 +1714,8 @@ body.touch-ui .time-row .btn.small {
   border-radius: 10px;
 }
 body.touch-ui .fps {
-  margin-top: 5px;
-  font-size: 10px;
+  margin-top: 3px;
+  font-size: 9px;
 }
 
 body.touch-ui .hud-tr {
@@ -1709,9 +1726,13 @@ body.touch-ui .hud-tr {
   max-width: none;
 }
 body.touch-ui .hud-tr .btn.icon {
-  width: 44px;
-  height: 44px;
-  border-radius: 14px;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+}
+body.touch-ui .hud-tr > .btn.icon svg {
+  width: 18px;
+  height: 18px;
 }
 body.touch-ui .btn.more {
   display: grid;
@@ -1719,7 +1740,7 @@ body.touch-ui .btn.more {
 body.touch-ui .tr-more {
   display: none;
   position: absolute;
-  top: 52px;
+  top: 46px;
   right: 0;
   grid-template-columns: repeat(3, 44px);
   gap: 8px;
@@ -1750,66 +1771,83 @@ body.touch-ui .hud-bc {
   min-width: 0;
 }
 body.touch-ui .speed-value {
-  font-size: 22px;
+  font-size: 18px;
 }
 body.touch-ui .thr {
-  width: 120px;
-  height: 3px;
-  margin: 3px auto 4px;
+  width: 96px;
+  height: 2px;
+  margin: 2px auto 3px;
 }
 body.touch-ui .speed-limit {
   font-size: 9px;
 }
 body.touch-ui .toast {
-  top: calc(78px + var(--safe-t));
+  top: calc(62px + var(--safe-t));
   font-size: 13px;
 }
 
-/* warp: target, one factor chip and the engage button, left of the throttle */
+/* warp: one slim strip at the bottom centre, between the thumbs */
 body.touch-ui .hud-br {
-  right: calc(92px + var(--safe-r));
-  bottom: calc(14px + var(--safe-b));
-  width: 236px;
-  padding: 10px;
-  border-radius: 16px;
+  left: 50%;
+  right: auto;
+  transform: translateX(-50%);
+  bottom: calc(10px + var(--safe-b));
+  width: min(360px, calc(100vw - 2 * (170px + var(--safe-l))));
+  padding: 5px 5px 5px 12px;
+  border-radius: 14px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 10px;
+  align-items: center;
+}
+body.touch-ui .hud-br .warp-row {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  gap: 5px;
 }
 body.touch-ui .warp-head,
 body.touch-ui .factors {
   display: none;
 }
 body.touch-ui .warp-target {
+  grid-column: 1;
   margin-top: 0;
-  font-size: 15px;
+  font-size: 13px;
 }
 body.touch-ui .warp-eta {
-  margin-bottom: 8px;
-  font-size: 11px;
+  grid-column: 1;
+  margin-bottom: 0;
+  font-size: 10px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 body.touch-ui .factor-cycle {
   display: block;
-  min-width: 60px;
-  height: 46px;
-  font-size: 16px;
-  border-radius: 12px;
+  min-width: 44px;
+  height: 36px;
+  padding: 0 6px;
+  font-size: 13px;
+  border-radius: 10px;
 }
 body.touch-ui .engage {
-  height: 46px;
+  width: 92px;
+  height: 36px;
   padding: 0;
-  font-size: 14px;
-  border-radius: 12px;
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  border-radius: 10px;
 }
 
-/* scanner sits above the warp panel, clear of both thumbs */
+/* scanner: top-left corner, out of the thumbs' way */
 body.touch-ui .minimap {
-  left: auto;
-  right: calc(92px + var(--safe-r));
-  bottom: calc(136px + var(--safe-b));
-  width: 172px;
-  height: 112px;
-  border-radius: 14px;
+  left: calc(14px + var(--safe-l));
+  right: auto;
+  top: calc(10px + var(--safe-t));
+  bottom: auto;
+  width: var(--mini-w);
+  height: var(--mini-h);
+  border-radius: 12px;
 }
 
 /* flight stick: appears under the left thumb */
@@ -1850,8 +1888,8 @@ body.touch-ui .knob {
 }
 body.touch-ui .troll {
   left: calc(30px + var(--safe-l));
-  bottom: calc(152px + var(--safe-b));
-  gap: 10px;
+  bottom: calc(150px + var(--safe-b));
+  gap: 12px;
 }
 /* only the buttons take touches, so a thumb landing between them still reaches the stick */
 body.touch-ui .troll,
@@ -1864,8 +1902,8 @@ body.touch-ui .tpedals .btn {
   touch-action: none;
 }
 body.touch-ui .btn.roll {
-  width: 46px;
-  height: 46px;
+  width: 52px;
+  height: 52px;
   padding: 0;
   display: grid;
   place-items: center;
@@ -1888,7 +1926,7 @@ body.touch-ui .btn.roll.on {
 body.touch-ui .tthr {
   right: calc(18px + var(--safe-r));
   bottom: calc(14px + var(--safe-b));
-  width: 58px;
+  width: 62px;
   height: var(--thr-h);
   border-radius: 18px;
   border: 1px solid rgba(255, 255, 255, 0.2);
@@ -1937,22 +1975,22 @@ body.touch-ui .tthr-text {
   pointer-events: none;
 }
 
-/* boost and brake, held, stacked on top of the throttle: the right thumb's column.
-   The throttle gives up height on short screens so the column clears the toolbar. */
+/* right thumb: a tall throttle at the edge with BOOST, BRAKE and REV in a column beside it.
+   The throttle runs from the bottom up to just under the toolbar. */
 body.touch-ui {
-  --thr-h: max(120px, min(210px, calc(100vh - 234px - var(--safe-t) - var(--safe-b))));
+  --thr-h: max(150px, min(280px, calc(100vh - 74px - var(--safe-t) - var(--safe-b))));
 }
 body.touch-ui .tpedals {
   position: absolute;
-  right: calc(18px + var(--safe-r));
-  bottom: calc(14px + var(--thr-h) + 8px + var(--safe-b));
+  right: calc(18px + 62px + 10px + var(--safe-r));
+  bottom: calc(14px + var(--safe-b));
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 body.touch-ui .btn.pedal {
-  width: 58px;
-  height: 44px;
+  width: 62px;
+  height: 48px;
   padding: 0;
   border-radius: 14px;
   font-size: 10px;
@@ -1997,6 +2035,24 @@ body.touch-ui .tr-more .btn.icon {
   justify-content: center;
   gap: 4px;
 }
+body.touch-ui .tr-more {
+  background: rgba(6, 12, 20, 0.94);
+}
+body.touch-ui .tr-more .time-row {
+  grid-column: 1 / -1;
+  margin-top: 2px;
+  gap: 6px;
+}
+body.touch-ui .tr-more .time-row .btn.small {
+  flex: 1;
+  height: 40px;
+  min-width: 0;
+}
+body.touch-ui .tr-more .tscale {
+  margin-left: 2px;
+  font-size: 10px;
+  white-space: nowrap;
+}
 body.touch-ui .tr-more .btn-name {
   display: block;
   font-size: 11px;
@@ -2027,8 +2083,9 @@ body.touch-ui .btn:active {
 
 /* short landscape phones */
 @media (max-height: 430px) {
-  body.touch-ui .date {
-    display: none;
+  body.touch-ui {
+    --mini-w: 132px;
+    --mini-h: 80px;
   }
   body.touch-ui .stick {
     width: 104px;
