@@ -37,6 +37,12 @@ All of these are **CC BY 4.0, © Solar System Scope / INOVE**, based on NASA dat
 | Pluto | solar-atlas, from NASA's New Horizons global colour mosaic | Public domain (processing MIT) | NASA/Johns Hopkins University APL/Southwest Research Institute; Abhi Singh |
 | Charon | solar-atlas, from NASA PIA19866 | Public domain (processing MIT) | NASA/JHUAPL/SwRI; Abhi Singh |
 
+## Kepler-385
+
+- **Data**: NASA Exoplanet Archive (Kepler Objects of Interest cumulative table and planetary systems tables) and Lissauer et al. 2024, *Updated Catalog of Kepler Planet Candidates: Focus on Accuracy and Orbital Periods*, Planetary Science Journal 5, 152 (periods, radii and the candidates KOI-2433.04, .06, .07 and .08). Planets b and c were confirmed by Rowe et al. 2014 (ApJ 784, 45) and d by Armstrong et al. 2021 (MNRAS 504, 5327). Masses of b and c are transit-timing estimates from Hadden & Lithwick 2017 (AJ 154, 5); the other masses use the Chen & Kipping 2017 (ApJ 834, 17) mass-radius relation. Distance from Gaia DR3. `src/sim/kepler385.ts` lists what is measured and what is inferred.
+- **Planet and star maps** (`public/textures/kepler385*`, `public/textures/koi2433-*`): made for Cosmos by `tools/build_exoplanets.py` from noise and each planet's measured size and temperature. No images of these worlds exist. Same licence as the code.
+- **Sky from Kepler-385** (`public/data/stars_kepler385.bin`): a statistical star field made by `tools/build_system_stars.py` from a simple model of the Milky Way's disc. The real stars near Kepler-385 have not been catalogued.
+
 ## Normal maps
 
 | Map | Source | Licence | Credit |

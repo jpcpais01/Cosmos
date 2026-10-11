@@ -5,6 +5,7 @@ import type { ViewMode } from '../ship/cameraRig';
 import { lookQuat } from '../ship/flight';
 import { DEG } from '../sim/constants';
 import { latLonToBody } from '../sim/frames';
+import { systemOf } from '../sim/bodies';
 
 export interface SavedLocation {
   id: string;
@@ -16,6 +17,8 @@ export interface SavedLocation {
   place(eph: Ephemeris, ship: Ship): void;
   /** camera view to switch to on arrival (keeps the current one when unset) */
   view?: ViewMode;
+  /** star system the place is in (the Solar System when unset) */
+  system?: string;
   custom?: boolean;
 }
 
@@ -365,6 +368,90 @@ export const DEFAULT_LOCATIONS: SavedLocation[] = [
       aimShip(ship, eph, 'charon', abs, target, poleOf(eph, 'pluto'));
     },
   },
+  // --- Kepler-385, 4,940 light years away (positions follow the planets' real transit times)
+  {
+    id: 'k385-magma',
+    name: 'Kepler-385 · Magma Ocean',
+    description: 'Beside KOI-2433.08 as it turns its day side to the star: rock at 1,900 K, a glowing ocean of magma under a sky 640 times brighter than Earth\'s.',
+    epoch: null,
+    view: 'chase',
+    system: 'kepler385',
+    place(eph, ship) {
+      const P = eph.get('koi2433-08');
+      const s = dirTo(eph, 'koi2433-08', 'kepler385');
+      const pole = new Vector3(0, 1, 0);
+      // beside the terminator: the magma ocean on the lit half, the cold night side beyond
+      const u = turn(s, perpTo(s, new Vector3().crossVectors(pole, s)), 72);
+      u.addScaledVector(pole, 0.25).normalize();
+      const abs = new Vector3().copy(P.pos).addScaledVector(u, P.def.radius * 3.2);
+      aimShip(ship, eph, 'koi2433-08', abs, P.pos, pole, 4);
+    },
+  },
+  {
+    id: 'k385-lake',
+    name: 'Kepler-385 · Lake of Fire',
+    description: '1,500 km above the magma lake of KOI-2433.06, the star always straight overhead.',
+    epoch: null,
+    view: 'cockpit',
+    system: 'kepler385',
+    place(eph, ship) {
+      const P = eph.get('koi2433-06');
+      const s = dirTo(eph, 'koi2433-06', 'kepler385');
+      const pole = new Vector3(0, 1, 0);
+      const h = 1500;
+      // out over the shore, looking back across the lake toward the point under the star
+      const u = turn(s, perpTo(s, pole), 48);
+      const abs = new Vector3().copy(P.pos).addScaledVector(u, P.def.radius + h);
+      const dip = Math.acos(P.def.radius / (P.def.radius + h));
+      const fwd = horizonLook(u, s, -dip - 4 * DEG, new Vector3());
+      setShip(ship, eph, 'koi2433-06', abs, lookQuat(fwd, u));
+    },
+  },
+  {
+    id: 'k385-b',
+    name: 'Kepler-385 b',
+    description: 'A hot, deep-blue sub-Neptune 0.09 AU from its star, its clouds made of salts rather than water.',
+    epoch: null,
+    view: 'cockpit',
+    system: 'kepler385',
+    place(eph, ship) {
+      const P = eph.get('kepler385b');
+      const s = dirTo(eph, 'kepler385b', 'kepler385');
+      const pole = new Vector3(0, 1, 0);
+      const u = turn(s, perpTo(s, new Vector3().crossVectors(pole, s)), 62).addScaledVector(pole, 0.15).normalize();
+      const abs = new Vector3().copy(P.pos).addScaledVector(u, P.def.radius * 3.4);
+      aimShip(ship, eph, 'kepler385b', abs, P.pos, pole, 7);
+    },
+  },
+  {
+    id: 'k385-d',
+    name: 'Kepler-385 d',
+    description: 'The warm sub-Neptune d, banded in methane haze, with the inner planets as bright stars around Kepler-385.',
+    epoch: null,
+    view: 'chase',
+    system: 'kepler385',
+    place(eph, ship) {
+      const P = eph.get('kepler385d');
+      const s = dirTo(eph, 'kepler385d', 'kepler385');
+      const pole = new Vector3(0, 1, 0);
+      const u = turn(s, perpTo(s, new Vector3().crossVectors(pole, s)), 40).addScaledVector(pole, 0.1).normalize();
+      const abs = new Vector3().copy(P.pos).addScaledVector(u, P.def.radius * 4);
+      aimShip(ship, eph, 'kepler385d', abs, P.pos, pole, 3);
+    },
+  },
+  {
+    id: 'k385-overview',
+    name: 'Kepler-385 · All Seven Worlds',
+    description: 'High above the star: seven planets crowded inside half an AU, every one closer in than Mercury is to the Sun.',
+    epoch: null,
+    view: 'cockpit',
+    system: 'kepler385',
+    place(eph, ship) {
+      const S = eph.get('kepler385');
+      const abs = new Vector3(0.18 * 149_597_870.7, 0.32 * 149_597_870.7, 0.26 * 149_597_870.7);
+      aimShip(ship, eph, 'kepler385', abs, S.pos, new Vector3(0, 1, 0), 0);
+    },
+  },
 ];
 
 const STORAGE_KEY = 'cosmos.locations.v1';
@@ -415,6 +502,7 @@ function fromStored(s: StoredLocation): SavedLocation {
     description: `${s.place ? `${s.place} · ` : ''}${fmtEpoch(s.epoch)}`,
     epoch: s.epoch,
     custom: true,
+    system: systemOf(s.frame),
     place(eph, ship) {
       const abs = new Vector3(...s.rel).add(eph.get(s.frame).pos);
       setShip(ship, eph, s.frame, abs, new Quaternion(...s.quat));

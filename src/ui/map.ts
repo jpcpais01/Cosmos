@@ -10,7 +10,7 @@ const FONT = "'Rajdhani', 'Segoe UI', system-ui, sans-serif";
 const AMBER = 'rgba(255,179,71,0.95)';
 /** Off-screen margin (px) kept when clipping orbit lines. */
 const CLIP = 40;
-const AU_RINGS = [0.1, 0.5, 1, 2, 5, 10, 20, 30, 40, 50];
+const AU_RINGS = [0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 30, 40, 50];
 
 const _a = new Vector3();
 const _b = new Vector3();
@@ -75,6 +75,9 @@ export class SystemMap {
   /** world km of the screen centre (x, z) */
   private center = new Vector3();
   private follow: string | null = 'sun';
+  private title = el('div', 'map-title');
+  /** system the body list was built for */
+  private listSystem = '';
   private scale = 1; // px per km
   private targetScale = 1;
   private hits: Hit[] = [];
@@ -101,7 +104,7 @@ export class SystemMap {
 
   constructor(private eph: Ephemeris, private ship: Ship, private warp: WarpDrive) {
     const top = el('div', 'map-top');
-    top.append(el('div', 'map-title', 'SOLAR SYSTEM <span>true sizes and distances</span>'));
+    top.append(this.title);
     const close = el('button', 'btn icon', '✕');
     close.title = 'Close map (M / Esc)';
     close.onclick = () => this.onClose?.();
@@ -112,8 +115,15 @@ export class SystemMap {
     this.bindPointer();
   }
 
+  /** Body list and title for the system the ship is in. */
   private buildList(): void {
-    const groups: BodyState[] = this.eph.list.filter((s) => s.def.id === 'sun' || s.parent?.def.id === 'sun');
+    const sys = this.eph.system;
+    this.listSystem = sys.id;
+    this.title.innerHTML = `${sys.name.toUpperCase()} <span>true sizes and distances</span>`;
+    this.list.innerHTML = '';
+    this.listButtons.clear();
+    const star = this.eph.star;
+    const groups: BodyState[] = this.eph.list.filter((s) => s === star || s.parent === star);
     const button = (s: BodyState, cls: string) => {
       const b = el('button', cls, s.def.name);
       b.style.setProperty('--dot', bodyRgb(s.def.color, 1.05));
@@ -139,7 +149,7 @@ export class SystemMap {
     this.follow = id;
     this.center.copy(s.pos);
     let extent: number;
-    if (id === 'sun') extent = Math.max(...s.children.map((c) => c.pos.length())) * 1.05;
+    if (s.def.kind === 'star') extent = Math.max(...s.children.map((c) => c.pos.length())) * 1.05;
     else if (s.children.length) extent = Math.max(...s.children.map((c) => c.pos.distanceTo(s.pos))) * 1.25;
     else extent = s.def.radius * 40;
     this.targetScale = (Math.min(this.W, this.H) * 0.45) / extent;
@@ -155,6 +165,7 @@ export class SystemMap {
   show(): void {
     this.open = true;
     this.root.classList.remove('hidden');
+    if (this.listSystem !== this.eph.system.id) this.buildList();
     this.resize();
     // start centred on the ship's system
     const f = this.ship.frame;
@@ -308,7 +319,7 @@ export class SystemMap {
     }
     // coordinates: relative to the most relevant body on screen (the focus, else the Sun)
     const p = this.toWorld(x, y, new Vector3());
-    const frameId = this.follow ?? 'sun';
+    const frameId = this.follow ?? this.eph.system.star;
     const f = this.eph.get(frameId);
     const off = new Vector3(p.x - f.pos.x, 0, p.z - f.pos.z);
     const label = `${fmtDistance(off.length())} from ${f.def.name}`;
@@ -385,7 +396,8 @@ export class SystemMap {
     const period = 2 * Math.PI * Math.sqrt((a * a * a) / s.parent!.def.gm) * 1000;
     const stale = o && Math.abs(o.t - simMs) > Math.max(12 * 3.6e6, period * 0.03);
     if (!o || (stale && allowResample)) {
-      const pts = this.eph.sampleOrbit(s.def.id, s.parent?.def.id === 'sun' ? 360 : 128);
+      const planet = s.parent?.def.kind === 'star';
+      const pts = this.eph.sampleOrbit(s.def.id, planet ? 360 : 128);
       const xz = new Float64Array(pts.length * 2);
       let rMin = Infinity, rMax = 0;
       pts.forEach((p, i) => {
@@ -395,7 +407,6 @@ export class SystemMap {
         rMin = Math.min(rMin, r);
         rMax = Math.max(rMax, r);
       });
-      const planet = s.parent?.def.id === 'sun';
       o = {
         t: simMs, xz, rMin, rMax,
         stroke: bodyRgb(s.def.color, 0.9, planet ? 0.3 : 0.2),
@@ -497,8 +508,8 @@ export class SystemMap {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.lineWidth = 1;
 
-    // AU rings around the Sun
-    const sun = this.eph.get('sun');
+    // AU rings around the star
+    const sun = this.eph.star;
     const sx = this.sx(sun.pos.x), sy = this.sy(sun.pos.z);
     const far = Math.hypot(Math.max(sx, W - sx), Math.max(sy, H - sy));
     const near = Math.max(0, Math.hypot(Math.max(0, -sx, sx - W), Math.max(0, -sy, sy - H)));

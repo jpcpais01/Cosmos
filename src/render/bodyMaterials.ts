@@ -35,6 +35,7 @@ uniform float uPixelAngle;
 uniform float uTime;
 uniform float uRadiance;
 uniform float uDiscGain;
+uniform vec3 uTint;
 uniform sampler2D uMap;
 void main() {
   vec3 rdW = normalize(vRel);
@@ -61,7 +62,7 @@ void main() {
   if (w1 > 0.0) gran += w1 * (0.28 * fbm3(n * 180.0 + vec3(0.0, 0.0, uTime * 0.02)) - 0.14);
   if (w2 > 0.0) gran += w2 * (0.12 * fbm3(n * 700.0 - vec3(uTime * 0.05)) - 0.06);
   vec3 limb = pow(vec3(max(mu, 1e-3)), vec3(0.38, 0.5, 0.68));
-  vec3 base = vec3(1.0, 0.93, 0.82);
+  vec3 base = vec3(1.0, 0.93, 0.82) * uTint;
   vec3 c = base * limb * gran * mix(0.75, 1.25, lumT) * uRadiance;
   // uDiscGain hands a disc only a pixel or two wide over to the point of light
   cov *= uDiscGain;
@@ -85,6 +86,7 @@ void main() {
       uTime: { value: 0 },
       uRadiance: { value: SUN_RADIANCE },
       uDiscGain: { value: 1 },
+      uTint: { value: new Vector3(1, 1, 1) },
       uMap: { value: map },
     },
   });

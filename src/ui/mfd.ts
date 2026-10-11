@@ -237,7 +237,7 @@ export class Mfd {
       const d = k.pos.distanceTo(center.pos);
       if (d < extent * 3 && kids.length < 12) extent = Math.max(extent, d * 1.1);
     }
-    if (center.def.id === 'sun') extent = Math.max(shipRel.length() * 1.2, 2.5e8);
+    if (center.def.kind === 'star') extent = Math.max(shipRel.length() * 1.2, center.def.id === 'sun' ? 2.5e8 : 6.5e7);
     const cx = w / 2, cy = h / 2 + 18;
     const sc = (Math.min(w, h - 50) / 2 - 8) / extent;
     // orbits
@@ -262,7 +262,7 @@ export class Mfd {
     // bodies, at true size (a locator ring when smaller than a pixel or so)
     ctx.font = `500 12px ${FONT}`;
     ctx.textBaseline = 'middle';
-    const sun = this.eph.get('sun');
+    const sun = this.eph.star;
     drawBody(ctx, center, cx, cy, sc, { sun, locator: center.def.kind === 'star' ? AMBER : CYAN });
     const labels: [number, number][] = [[cx, cy]];
     for (const k of kids) {

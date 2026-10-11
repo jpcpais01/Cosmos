@@ -1,8 +1,9 @@
 /**
  * Solar system body catalogue. Radii, flattening, rotation and orbital data from
  * IAU WGCCRE 2015 / JPL Solar System Dynamics (planetary physical parameters and
- * planetary satellite mean elements). Distances in km.
+ * planetary satellite mean elements). Distances in km. Other systems' bodies live in their own files.
  */
+import { KEPLER385_BODIES } from './kepler385';
 
 export type BodyKind = 'star' | 'planet' | 'moon' | 'dwarf';
 
@@ -42,6 +43,22 @@ export interface MoonOrbit {
   nodePeriod?: number;
 }
 
+/**
+ * Planet of another star: a circular orbit phased from its transit ephemeris. At each transit time the
+ * planet crosses the line from its star to the Sun (that is how it was found), offset from that line
+ * by its impact parameter. Positions are in the system's own frame (see systems.ts).
+ */
+export interface ExoOrbit {
+  /** Semi-major axis (km). */
+  a: number;
+  /** Period (days). */
+  period: number;
+  /** A transit time (UTC ms). */
+  t0: number;
+  /** Tilt of the orbit out of the system's reference plane (deg), from the impact parameter. */
+  tilt: number;
+}
+
 export interface RingDef {
   inner: number;
   outer: number;
@@ -52,6 +69,11 @@ export interface BodyDef {
   id: string;
   name: string;
   kind: BodyKind;
+  /** Star system (systems.ts); the Solar System when unset. */
+  system?: string;
+  /** Stars: effective temperature (K) and luminosity (Suns). */
+  teff?: number;
+  luminosity?: number;
   parent?: string;
   /** Equatorial radius (km). */
   radius: number;
@@ -67,18 +89,21 @@ export interface BodyDef {
   H: number;
   atmosphere?: AtmosphereDef;
   rings?: RingDef;
-  /** Rotation: from astronomy-engine (IAU) or synchronous with orbit. */
-  rotation: 'iau' | 'synchronous';
+  /** Rotation: from astronomy-engine (IAU), synchronous with the orbit, or a fixed spin (`spin`). */
+  rotation: 'iau' | 'synchronous' | 'spin';
+  /** For `spin` rotation: period (hours) and axial tilt from the orbit normal (deg). */
+  spin?: { periodH: number; obliquity: number };
   orbit?: MoonOrbit;
-  /** Kind of surface shading. */
-  shading: 'rocky' | 'earth' | 'gas' | 'icegiant' | 'sun' | 'cloudy';
+  exo?: ExoOrbit;
+  /** Kind of surface shading. `lava` is rocky ground that glows where its aux map says it is hot. */
+  shading: 'rocky' | 'earth' | 'gas' | 'icegiant' | 'sun' | 'cloudy' | 'lava';
   /** Fun facts for the info panel. */
   info: string;
   /** Gravitational parameter (km^3/s^2) - used for hill sphere / reference frame selection. */
   gm: number;
 }
 
-export const BODIES: BodyDef[] = [
+const SOLAR_SYSTEM: BodyDef[] = [
   {
     id: 'sun', name: 'Sun', kind: 'star', radius: 695_700, color: [1, 0.96, 0.9], albedo: 0, H: -26.7,
     rotation: 'iau', shading: 'sun', gm: 1.32712440018e11,
@@ -320,7 +345,19 @@ export const BODIES: BodyDef[] = [
   },
 ];
 
+export const BODIES: BodyDef[] = [...SOLAR_SYSTEM, ...KEPLER385_BODIES];
+
 export const BODY_BY_ID: Record<string, BodyDef> = Object.fromEntries(BODIES.map((b) => [b.id, b]));
+
+/** The star system a body belongs to. */
+export function systemOf(id: string): string {
+  return BODY_BY_ID[id]?.system ?? 'sol';
+}
+
+/** Light output relative to the Sun (1 for Solar System bodies). */
+export function luminosityOf(star: BodyDef): number {
+  return star.luminosity ?? 1;
+}
 
 export function polarRadius(b: BodyDef): number {
   return b.triaxial ? b.triaxial[2] : (b.polarRadius ?? b.radius);
