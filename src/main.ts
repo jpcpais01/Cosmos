@@ -730,10 +730,6 @@ async function main(): Promise<void> {
     gl.colorMask(true, true, true, true);
     renderer.setClearColor(BLACK, 1);
     renderer.render(shipView.scene, rig.camera);
-    if (!cockpit && shipView.enginesVisible) {
-      post.captureBackground();
-      shipView.renderPlumes(renderer, rig.camera, post.bg.texture, post.hdr.width, post.hdr.height);
-    }
 
     // sun flare
     tmp.subVectors(sun.pos, camAbs);
