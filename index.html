@@ -14,28 +14,38 @@
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400;500&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
   </head>
-  <body>
+  <body class="intro">
     <canvas id="scene"></canvas>
     <div id="ui"></div>
     <div id="fade"></div>
     <div id="loading">
       <canvas id="load-stars" aria-hidden="true"></canvas>
-      <div class="load-planet" aria-hidden="true"></div>
-      <div class="load-inner">
-        <h1 class="logo">COSMOS</h1>
-        <div class="tagline">The Solar System, to scale</div>
-        <div class="load-slot">
-          <div class="load-progress">
-            <div class="load-track"><div id="load-bar"></div></div>
-            <div id="load-text">Starting</div>
-          </div>
-          <button id="start" class="launch hidden">Launch</button>
-        </div>
-        <div class="load-rotate">Turn your phone sideways to fly</div>
+      <div class="intro-load">
+        <div class="intro-orbit" aria-hidden="true"></div>
+        <div class="intro-word">Cosmos</div>
+        <div class="load-track"><div id="load-bar"></div></div>
+        <div class="load-meta"><span id="load-text">Starting</span><span id="load-pct"></span></div>
       </div>
-      <div class="load-foot">Real planet maps · 112,699 stars · Live positions</div>
+      <div class="intro-title">
+        <p class="intro-eyebrow">A real-scale Solar System</p>
+        <h1 class="intro-word">Cosmos</h1>
+        <p class="intro-lede">Real planets, real stars, real distances. Fly anywhere, up to a hundred times faster than light.</p>
+        <div class="intro-actions">
+          <button id="start" class="intro-launch" type="button">
+            Launch
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+          </button>
+          <span class="intro-hint">or press Enter</span>
+        </div>
+        <p class="intro-rotate">Turn your phone sideways to fly</p>
+      </div>
+      <div class="intro-foot" aria-hidden="true">
+        <span>Real planet maps</span>
+        <span>112,699 stars</span>
+        <span>Live positions</span>
+      </div>
     </div>
     <div id="rotate" aria-hidden="true">
       <div class="rot-phone"></div>
