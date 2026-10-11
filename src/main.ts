@@ -21,6 +21,7 @@ import { Mfd } from './ui/mfd';
 import { Sound } from './audio/sound';
 import { fmtDistance } from './ui/format';
 import { startSplashStars } from './ui/splash';
+import { renderPatchNotes } from './ui/patchNotes';
 
 const BASE = import.meta.env.BASE_URL;
 
@@ -100,6 +101,7 @@ async function main(): Promise<void> {
   const bar = $('load-bar');
   const loadText = $('load-text');
   startSplashStars($<HTMLCanvasElement>('load-stars'));
+  renderPatchNotes($('patch-notes'));
   const loadPct = $('load-pct');
   if (!webglAvailable()) {
     loadText.textContent = 'This experience needs WebGL 2. Please use a recent Chrome, Edge, Firefox or Safari.';
