@@ -1,0 +1,32 @@
+{
+  "name": "cosmos",
+  "version": "0.1.0",
+  "description": "Cosmos: a real-scale 3D solar system spaceflight PWA",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jpcpais01/Cosmos.git"
+  },
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/jpcpais01/Cosmos/issues"
+  },
+  "homepage": "https://github.com/jpcpais01/Cosmos#readme",
+  "dependencies": {
+    "astronomy-engine": "^2.1.19",
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@types/three": "^0.186.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4",
+    "vite-plugin-pwa": "^2.0.0"
+  },
+  "private": true,
+  "type": "module"
+}

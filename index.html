@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <title>Cosmos · Real-Scale Solar System</title>
+    <meta name="description" content="Fly a small white starship through a real-scale Solar System with real planet maps, real star positions and warp drive up to 100 times the speed of light." />
+    <meta name="theme-color" content="#000000" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="icon" href="/icons/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet" />
+  </head>
+  <body>
+    <canvas id="scene"></canvas>
+    <div id="ui"></div>
+    <div id="fade"></div>
+    <div id="loading">
+      <div class="load-inner">
+        <div class="logo">COSMOS</div>
+        <div class="tagline">A real-scale Solar System</div>
+        <div class="load-track"><div id="load-bar"></div></div>
+        <div id="load-text">Starting…</div>
+        <button id="start" class="btn primary hidden">LAUNCH</button>
+        <div class="load-foot">Real planet maps · 112,000 Hipparcos stars · live ephemerides</div>
+      </div>
+    </div>
+    <noscript>Cosmos needs JavaScript and WebGL 2.</noscript>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
