@@ -105,7 +105,9 @@ async function main(): Promise<void> {
   const renderer = new WebGLRenderer({ canvas, antialias: false, alpha: false, stencil: false, powerPreference: 'high-performance' });
   renderer.autoClear = false;
   renderer.toneMapping = NoToneMapping;
-  renderer.setClearColor(new Color(0, 0, 0), 1);
+  const BLACK = new Color(0, 0, 0);
+  renderer.setClearColor(BLACK, 1);
+  const gl = renderer.getContext();
 
   // --- simulation
   let simMs = Date.now();
@@ -632,6 +634,12 @@ async function main(): Promise<void> {
     renderer.render(sky.scene, sky.camera);
     renderer.render(universe.scene, universe.camera);
     renderer.clearDepth();
+    // alpha becomes a ship mask (0 = world, 1 = ship) so warp distortion only bends space outside the hull
+    gl.colorMask(false, false, false, true);
+    renderer.setClearColor(BLACK, 0);
+    renderer.clear(true, false, false);
+    gl.colorMask(true, true, true, true);
+    renderer.setClearColor(BLACK, 1);
     renderer.render(shipView.scene, rig.camera);
     if (!cockpit && shipView.enginesVisible) {
       post.captureBackground();
@@ -665,6 +673,8 @@ async function main(): Promise<void> {
       flash: warp.flash,
       bubble: Math.max(warp.spool * 0.55, warp.intensity * (0.6 + 0.4 * fNorm)),
       shake: warp.shake,
+      spool: warp.spool,
+      rays: Math.max(warp.spool * 0.7, warpVis),
     });
 
     // HUD

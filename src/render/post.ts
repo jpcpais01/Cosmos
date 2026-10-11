@@ -88,6 +88,8 @@ uniform float uWarpSpeed; // streak scroll speed
 uniform float uFlash;
 uniform float uBubble;    // lens distortion of the warp bubble
 uniform float uShake;
+uniform float uSpool;     // warp drive charging 0..1
+uniform float uRays;      // god-ray strength 0..1
 
 vec3 agx(vec3 c) {
   const mat3 m = mat3(0.842479062253094, 0.0423282422610123, 0.0423756549057051,
@@ -118,10 +120,37 @@ void main() {
   // camera shake (warp entry)
   uv += uShake * 0.004 * vec2(sin(uTime * 61.0) + sin(uTime * 23.0), cos(uTime * 47.0) + sin(uTime * 31.0));
   // warp bubble lensing: radial compression toward the apex with a refractive ring
+  float hull = texture(uScene, uv).a; // 1 where the ship was drawn
+  float space = 1.0 - clamp(hull, 0.0, 1.0);
   vec2 dv = (uv - uApex) * aspect;
   float r = length(dv);
   float ring = exp(-pow((r - 0.55) / 0.22, 2.0));
   vec2 lens = dv * (1.0 - uBubble * (0.18 * ring + 0.08 * smoothstep(0.0, 1.2, r)));
+  float ang = atan(dv.y, dv.x);
+  float lr = log(max(r, 1e-3));
+  vec2 radial = dv / max(r, 1e-4);
+  vec2 tang = vec2(-radial.y, radial.x);
+  vec3 polar = vec3(cos(ang), sin(ang), 0.0);
+  float veins = 0.5;
+  float agitation = max(uBubble, uSpool * 0.8);
+  if (agitation > 0.001) {
+    // space itself ripples: noisy waves running out of the apex, sheared sideways by a second noise field
+    float flow = uTime * uWarpSpeed;
+    float n1 = fbm3(polar * 1.7 + vec3(0.0, 0.0, lr * 1.3 - flow * 0.6));
+    veins = fbm3(polar * 4.0 + vec3(5.2, 1.3, lr * 2.4 - flow * 0.8));
+    float ripple = sin(lr * 14.0 - uTime * (6.0 + uWarpSpeed * 4.0) + n1 * 7.0);
+    vec2 disp = radial * (ripple * 0.009 + (n1 - 0.5) * 0.035) + tang * (veins - 0.5) * 0.04;
+    // while charging, space is wound up around the apex
+    float tw = uSpool * (1.0 - uBubble) * 0.6 * exp(-r * 2.2) * sin(uTime * 2.0 + r * 9.0);
+    disp += tang * tw * r;
+    lens += disp * agitation * smoothstep(0.0, 0.25, r);
+  }
+  // shockwave ring on entry and exit
+  if (uFlash > 0.001) {
+    float sr = (1.0 - uFlash) * 1.9;
+    lens += radial * uFlash * 0.07 * exp(-pow((r - sr) / 0.09, 2.0));
+  }
+  lens = mix(dv, lens, space);
   vec2 suv = uApex + lens / aspect;
   // chromatic aberration grows with warp
   float ca = uBubble * 0.006 * r + 0.0006 * dot(uv - 0.5, uv - 0.5);
@@ -158,10 +187,33 @@ void main() {
     col += fl * vis * uSunPower;
   }
 
+  // God rays: the glow of the scene smeared outward from the warp apex, broken into shafts
+  if (uRays > 0.001) {
+    vec2 st = (uApex - suv) * (0.9 / 20.0);
+    vec2 p = suv;
+    vec3 acc = vec3(0.0);
+    float w = 1.0;
+    for (int i = 0; i < 20; i++) {
+      p += st;
+      vec3 b = texture(uBloom, p).rgb * exposure;
+      acc += b * smoothstep(0.6, 2.5, dot(b, vec3(0.2126, 0.7152, 0.0722))) * w;
+      w *= 0.9;
+    }
+    acc /= 8.0;
+    float shafts = vnoise3(polar * 9.0 + vec3(0.0, 0.0, uTime * 0.35));
+    shafts = 0.25 + 1.5 * pow(shafts, 2.5);
+    // light pouring out of the apex itself
+    vec3 core = vec3(0.55, 0.75, 1.0) * pow(vnoise3(polar * 16.0 + vec3(3.0, 0.0, uTime * 0.6)), 3.0) * 0.7 / (1.0 + r * 3.5);
+    col += (acc * vec3(0.8, 0.9, 1.0) * shafts * 0.3 + core * shafts) * uRays * smoothstep(0.0, 0.08, r) * (0.25 + 0.75 * space);
+  }
+
   // Warp tunnel: sparse light streaks scrolling out of the apex (polar coordinates, log-radius)
   if (uWarp > 0.001) {
-    float ang = atan(dv.y, dv.x);
-    float lr = log(max(r, 1e-3));
+    // strange occlusion: dark veins crawl along the tunnel wall and the edges sink into shadow
+    float occl = smoothstep(0.52, 0.72, veins) * smoothstep(0.12, 0.6, r);
+    float edge = smoothstep(0.45, 1.35, r);
+    float horizon = exp(-pow((r - 0.11) / 0.045, 2.0));
+    col *= 1.0 - uWarp * clamp((0.7 * occl + 0.5 * horizon) * space + 0.55 * edge * (0.5 + veins), 0.0, 0.9);
     float a1 = ang * 40.0 / TAU;
     float cell = floor(a1 * 4.0);
     float rnd = hash12(vec2(cell, 3.7));
@@ -177,7 +229,6 @@ void main() {
     // glow of the warp bubble around the apex
     tunnel += vec3(0.6, 0.8, 1.0) * 0.18 / (1.0 + r * r * 160.0);
     col += tunnel * uWarp * 0.55;
-    col *= 1.0 - 0.3 * uWarp * smoothstep(0.35, 1.2, r);
   }
   // entry / exit flash: bright at the apex, a soft veil elsewhere
   col += vec3(0.75, 0.88, 1.0) * uFlash * (0.25 + 2.5 / (1.0 + r * r * 30.0));
@@ -205,6 +256,8 @@ export interface PostParams {
   warpSpeed: number;
   flash: number;
   bubble: number;
+  spool: number;
+  rays: number;
   shake: number;
 }
 
@@ -272,7 +325,7 @@ export class PostPipeline {
         uBloomStrength: { value: 0.05 }, uTime: { value: 0 },
         uSunUv: { value: new Vector2() }, uSunOn: { value: 0 }, uSunPower: { value: 1 },
         uApex: { value: new Vector2(0.5, 0.5) }, uWarp: { value: 0 }, uWarpSpeed: { value: 1 }, uFlash: { value: 0 },
-        uBubble: { value: 0 }, uShake: { value: 0 },
+        uBubble: { value: 0 }, uShake: { value: 0 }, uSpool: { value: 0 }, uRays: { value: 0 },
       },
     });
     this.quad = new Mesh(tri, this.comp);
@@ -367,6 +420,8 @@ export class PostPipeline {
     u.uWarpSpeed.value = p.warpSpeed;
     u.uFlash.value = p.flash;
     u.uBubble.value = p.bubble;
+    u.uSpool.value = p.spool;
+    u.uRays.value = p.rays;
     u.uShake.value = p.shake;
     this.pass(this.comp, null);
     r.autoClear = autoClear;
