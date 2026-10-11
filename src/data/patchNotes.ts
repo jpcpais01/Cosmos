@@ -11,6 +11,20 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     date: '2026-10-11',
+    title: 'No blue spot on the canopy',
+    notes: ['The coloured lens reflections from the Sun are gone, including the blue spot that sat near the top of the view when the Sun was just above it.'],
+  },
+  {
+    date: '2026-10-11',
+    title: 'Faster ship drawing',
+    notes: [
+      'The canopy glass, which fills most of the view from the cockpit, now costs a fraction of what it did and looks the same.',
+      'Cabin lights only cost something where they actually reach, and the warp light costs nothing while it is off.',
+      'The cost panel shows the canopy glass as its own line.',
+    ],
+  },
+  {
+    date: '2026-10-11',
     title: 'A fast, cleaner map',
     notes: [
       'The map opens and pans smoothly: the 3D scene pauses behind it, and lines far off screen are no longer drawn.',
