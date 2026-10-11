@@ -9,6 +9,12 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    version: '0.20',
+    date: '2026-10-11',
+    title: 'Cost panel on phones',
+    notes: ['On phones and tablets the frame-cost panel under the FPS counter starts closed so it no longer covers the roll buttons. Tap the FPS readout to open it.'],
+  },
+  {
     version: '0.19',
     date: '2026-10-11',
     title: 'True-scale maps',

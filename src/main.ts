@@ -607,7 +607,7 @@ async function main(): Promise<void> {
         height: post.hdr.height,
         gpu: prof.gpuName,
       } : null);
-      prof.enabled = settings.fps && settings.perf;
+      prof.enabled = hud.perfVisible;
       fpsTime = 0;
       fpsFrames = 0;
     }
