@@ -96,7 +96,6 @@ function sunVisibility(eph: Ephemeris, p: Vector3): number {
 const _s1 = new Vector3();
 const ORIGIN = new Vector3();
 const _s2 = new Vector3();
-const _rates = new Vector3();
 
 async function main(): Promise<void> {
   const loading = $('loading');
@@ -140,7 +139,7 @@ async function main(): Promise<void> {
   const shipView = new ShipView(renderer);
   shipView.sun.shadow.mapSize.set(preset.shadow, preset.shadow);
   const env = new EnvMap(renderer, universe, eph, worldToGalactic());
-  const rig = new CameraRig(new Vector3(0, 1.42, -1.62));
+  const rig = new CameraRig(new Vector3(0, 1.52, -1.57));
   const input = new Input(canvas);
   const sound = new Sound();
   const mfd = new Mfd(eph, ship, warp);
@@ -175,7 +174,7 @@ async function main(): Promise<void> {
     shipView.load((f) => {
       progress.ship = f;
       showProgress();
-    }).then((parts) => rig.setEye(parts.viewEye.clone())),
+    }).then((parts) => rig.setEye(parts.eye.clone())),
     loadSky(2048).then(() => {
       progress.sky = 1;
       showProgress();
@@ -733,12 +732,19 @@ async function main(): Promise<void> {
     parts.nav.mat.uniforms.uPx.value = pr;
     parts.nav.mat.uniforms.uTime.value = t;
     const cockpit = rig.mode === 'cockpit';
+    parts.pilot?.update(dt, t, {
+      pitch: MathUtils.clamp(ship.angVel.x / 1.1, -1, 1),
+      yaw: MathUtils.clamp(ship.angVel.y / 0.88, -1, 1),
+      roll: MathUtils.clamp(ship.angVel.z / 1.54, -1, 1),
+      throttle: warp.active ? 1 : ship.throttle,
+      boost: fi.boost,
+      warp: Math.max(warp.spool, warp.intensity),
+      shake: warp.shake,
+      firstPerson: cockpit,
+    });
     shipView.cabin.intensity = (cockpit ? 0.35 : 0.15) * eg * dbg.cabin;
     if (parts.canopy) parts.canopy.visible = dbg.canopy;
     shipView.setCanopyOutside(!cockpit);
-    // the pilot's stick follows the turn rates, the lever the throttle
-    _rates.set(ship.angVel.x / 1.1, ship.angVel.y / 1.1, ship.angVel.z / 1.54).clampScalar(-1, 1);
-    parts.pilot.update(dt, _rates, ship.throttle, t, cockpit);
     shipView.screenLight.intensity = 0.3 * eg;
     // warp light: calm and blue at 1c, flickering and drifting through colours at 100c
     if (warp.state !== 'idle' && prevWarpState === 'idle') warpSeed = Math.random();

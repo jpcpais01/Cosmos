@@ -5,8 +5,8 @@ import {
   Texture, TextureLoader, Vector2, Vector3, ZeroFactor, type Material, type WebGLRenderer,
 } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { Pilot, removeBakedControls } from './pilot';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import { Pilot } from './pilot';
 
 const BASE = import.meta.env.BASE_URL;
 
@@ -226,9 +226,7 @@ export interface ShipParts {
   interiorMeshes: Mesh[];
   hullMeshes: Mesh[];
   canopy?: Mesh;
-  pilot: Pilot;
-  /** where the cockpit camera sits (the pilot's eyes) */
-  viewEye: Vector3;
+  pilot?: Pilot;
 }
 
 /** The ship scene (metres). Rendered after the world with its own depth range. */
@@ -270,7 +268,7 @@ export class ShipView {
     root.add(model);
     this.scene.add(root);
 
-    const makeMats = (ao: Texture): Record<string, Material> => {
+    const makeMats = (ao: Texture | null): Record<string, Material> => {
       const mats: Record<string, Material> = {};
       const paint = new MeshPhysicalMaterial({
         color: new Color(0.78, 0.79, 0.8), roughness: 0.34, metalness: 0, clearcoat: 0.6, clearcoatRoughness: 0.12,
@@ -303,6 +301,8 @@ export class ShipView {
     // the hull's inner face is the cockpit wall below the canopy rim, so draw both sides
     for (const m of Object.values(hullMats)) m.side = DoubleSide;
     const cockpitMats = makeMats(cockpitAo);
+    // the moving levers are not part of the baked cockpit
+    const leverMats = makeMats(null);
     const glass = glassMaterial();
     const inGroup = (o: Object3D, n: string): boolean => {
       for (let p: Object3D | null = o; p; p = p.parent) if (p.name.startsWith(n)) return true;
@@ -322,7 +322,9 @@ export class ShipView {
         const src = m.material as Material;
         const name = src.name.replace(/\.\d+$/, '');
         const isCockpit = inGroup(m, 'Cockpit');
-        const mats = isCockpit ? cockpitMats : hullMats;
+        const isLever = inGroup(m, 'StickLever') || inGroup(m, 'ThrottleLever');
+        if (inGroup(m, 'Pilot')) return; // set up by Pilot
+        const mats = isLever ? leverMats : isCockpit ? cockpitMats : hullMats;
         if (name === 'Screen' || m.name.startsWith('Screen')) {
           screens.push(m);
         } else if (name === 'EngineGlow') {
@@ -351,7 +353,7 @@ export class ShipView {
           m.castShadow = true;
           m.receiveShadow = true;
         }
-        if (isCockpit) interiorMeshes.push(m);
+        if (isCockpit || isLever) interiorMeshes.push(m);
         if (inGroup(m, 'Hull')) {
           hullMeshes.push(m);
           fixInsideOut(m.geometry);
@@ -396,13 +398,12 @@ void main() { vec2 d = gl_PointCoord - 0.5; float g = exp(-dot(d, d) * 40.0); gl
     this.warpLight.position.set(0, 2, -6);
     model.add(this.cabin, this.screenLight, this.warpLight);
 
-    // the pilot, holding an animated stick and throttle in place of the model's fixed ones
-    removeBakedControls(interiorMeshes, model);
-    const viewEye = eye.clone().add(new Vector3(0, 0.1, 0.05));
-    const pilot = new Pilot(viewEye);
-    model.add(pilot.group);
+    const stick = model.getObjectByName('StickLever');
+    const throttle = model.getObjectByName('ThrottleLever');
+    const pilotObj = model.getObjectByName('Pilot');
+    const pilot = stick && throttle && pilotObj ? new Pilot(model, stick, throttle, pilotObj) : undefined;
 
-    this.parts = { root, model, eye, screens, glows, nav: { points: navPoints, mat: navMat }, interiorMeshes, hullMeshes, canopy, pilot, viewEye };
+    this.parts = { root, model, eye, screens, glows, nav: { points: navPoints, mat: navMat }, interiorMeshes, hullMeshes, canopy, pilot };
     return this.parts;
   }
 

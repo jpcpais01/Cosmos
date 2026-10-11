@@ -58,4 +58,4 @@ All of these are **CC BY 4.0, © Solar System Scope / INOVE**, based on NASA dat
 
 ## Ship
 
-The ship, cockpit and baked ambient-occlusion maps are original work for this project. They were generated procedurally in Blender by `tools/ship/build_ship.py` and are covered by the project's MIT licence.
+The ship, cockpit, pilot and baked ambient-occlusion maps are original work for this project. They were generated procedurally in Blender by `tools/ship/build_ship.py` (the pilot by `tools/ship/pilot.py`) and are covered by the project's MIT licence.

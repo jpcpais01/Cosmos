@@ -12,7 +12,7 @@ Cosmos lets you fly a small white starship through a real-scale Solar System in 
   - Pick a body or any coordinates on the Solar System map, choose 1c, 3c, 10c, 50c or 100c, and engage.
   - The ship aligns, spools up, flashes into a warp tunnel and drops out near the target.
   - During warp the sky shows relativistic aberration and Doppler shift.
-- **Three views.** A first-person cockpit with baked ambient occlusion and live instrument displays, plus a near and a far chase camera.
+- **Three views.** A first-person cockpit with baked ambient occlusion and live instrument displays, plus a near and a far chase camera. A suited pilot sits in the seat, and in first person you see their arms and hands working the stick and throttle.
 - **Five saved locations.** Low Earth Orbit; Over Europe with Jupiter setting; Earthrise over the Moon; Io with Jupiter rising; and above Saturn's rings. You can also save your own.
 
 ## Controls
