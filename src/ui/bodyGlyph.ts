@@ -11,10 +11,19 @@ const _node = new Vector3();
 const _w = new Vector3();
 const UP = new Vector3(0, 1, 0);
 
-function bodyRgb(c: [number, number, number], k = 1): string {
+/** Display colour for a body's linear albedo colour, optionally scaled (k) and translucent (alpha). */
+export function bodyRgb(c: [number, number, number], k = 1, alpha = 1): string {
   const m = Math.max(c[0], c[1], c[2]);
   const f = (v: number) => Math.round(Math.min(1, Math.pow(v / m, 0.6) * k) * 255);
-  return `rgb(${f(c[0])},${f(c[1])},${f(c[2])})`;
+  return alpha < 1 ? `rgba(${f(c[0])},${f(c[1])},${f(c[2])},${alpha})` : `rgb(${f(c[0])},${f(c[1])},${f(c[2])})`;
+}
+
+const colours = new Map<string, string>();
+function cached(s: BodyState, key: string, k: number): string {
+  const id = `${s.def.id}:${key}`;
+  let c = colours.get(id);
+  if (!c) colours.set(id, (c = bodyRgb(s.def.color, k)));
+  return c;
 }
 
 /** Body rotation axis (world). */
@@ -101,7 +110,7 @@ export interface GlyphOptions {
 export function drawBody(ctx: CanvasRenderingContext2D, s: BodyState, x: number, y: number, pxPerKm: number, opt: GlyphOptions = {}): number {
   const { a, b, ang } = silhouette(s, pxPerKm);
   const ringPx = s.def.rings ? s.def.rings.outer * pxPerKm : 0;
-  const col = bodyRgb(s.def.color, 1.05);
+  const col = cached(s, 'lit', 1.05);
   if (a < MIN_DISC_PX && ringPx < MIN_DISC_PX) {
     ctx.strokeStyle = opt.locator ?? (s.def.kind === 'star' ? 'rgba(255,200,120,0.85)' : col);
     ctx.globalAlpha = 0.75;
@@ -132,7 +141,7 @@ export function drawBody(ctx: CanvasRenderingContext2D, s: BodyState, x: number,
     dx /= l;
     dz /= l;
     const g = ctx.createLinearGradient(x - dx * a, y - dz * a, x + dx * a, y + dz * a);
-    const dark = bodyRgb(s.def.color, 0.22);
+    const dark = cached(s, 'dark', 0.22);
     g.addColorStop(0, dark);
     g.addColorStop(0.46, dark);
     g.addColorStop(0.54, col);

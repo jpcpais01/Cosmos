@@ -2,9 +2,15 @@ import { Vector3 } from 'three';
 import type { BodyState, Ephemeris } from '../sim/ephemeris';
 import type { Ship } from '../ship/flight';
 import type { WarpDrive, WarpTarget } from '../game/warp';
-import { AU_KM, WARP_FACTORS, type WarpFactor } from '../sim/constants';
+import { AU_KM, C_KMS, WARP_FACTORS, type WarpFactor } from '../sim/constants';
 import { fmtDistance, fmtDuration } from './format';
-import { drawBody } from './bodyGlyph';
+import { bodyRgb, drawBody } from './bodyGlyph';
+
+const FONT = "'Rajdhani', 'Segoe UI', system-ui, sans-serif";
+const AMBER = 'rgba(255,179,71,0.95)';
+/** Off-screen margin (px) kept when clipping orbit lines. */
+const CLIP = 40;
+const AU_RINGS = [0.1, 0.5, 1, 2, 5, 10, 20, 30, 40, 50];
 
 const _a = new Vector3();
 const _b = new Vector3();
@@ -14,6 +20,39 @@ interface Hit {
   x: number;
   y: number;
   r: number;
+}
+
+/** Orbit polyline relative to the parent, as x/z pairs (km), with its radius range. */
+interface Orbit {
+  t: number;
+  xz: Float64Array;
+  rMin: number;
+  rMax: number;
+  stroke: string;
+  strokeHi: string;
+}
+
+/** Result of the last clip(): the visible part of the segment, as fractions along it. */
+let clipT0 = 0;
+let clipT1 = 1;
+function edge(p: number, q: number): boolean {
+  if (p === 0) return q >= 0;
+  const r = q / p;
+  if (p < 0) {
+    if (r > clipT1) return false;
+    if (r > clipT0) clipT0 = r;
+  } else {
+    if (r < clipT0) return false;
+    if (r < clipT1) clipT1 = r;
+  }
+  return true;
+}
+/** Liang-Barsky: clips a segment to the screen padded by CLIP; false when it misses it entirely. */
+function clip(ax: number, ay: number, bx: number, by: number, W: number, H: number): boolean {
+  const dx = bx - ax, dy = by - ay;
+  clipT0 = 0;
+  clipT1 = 1;
+  return edge(-dx, ax + CLIP) && edge(dx, W + CLIP - ax) && edge(-dy, ay + CLIP) && edge(dy, H + CLIP - ay);
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, html?: string): HTMLElementTagNameMap[K] {
@@ -27,9 +66,11 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, html?: 
 export class SystemMap {
   readonly root = el('div', 'map overlay hidden');
   private canvas = el('canvas', 'map-canvas');
-  private ctx = this.canvas.getContext('2d')!;
+  private ctx = this.canvas.getContext('2d', { alpha: false })!;
+  private bg = document.createElement('canvas');
   private info = el('div', 'map-info panel');
   private list = el('div', 'map-list panel');
+  private listButtons = new Map<string, HTMLButtonElement>();
   open = false;
   /** world km of the screen centre (x, z) */
   private center = new Vector3();
@@ -37,13 +78,22 @@ export class SystemMap {
   private scale = 1; // px per km
   private targetScale = 1;
   private hits: Hit[] = [];
-  private orbits = new Map<string, { t: number; pts: Vector3[] }>();
+  private hitN = 0;
+  private labels: number[] = [];
+  private orbits = new Map<string, Orbit>();
   private selection: WarpTarget | null = null;
+  private hover: BodyState | null = null;
   private pointers = new Map<number, { x: number; y: number }>();
   private dragDist = 0;
   private pinch0 = 0;
   private dpr = 1;
+  private W = 1;
+  private H = 1;
   private lastTime = 0;
+  private infoAge = 1;
+  private distEl: HTMLElement | null = null;
+  private chipEls: HTMLElement[] = [];
+  private shown = new Map<HTMLElement, string>();
   onWarp?: (t: WarpTarget, factor: WarpFactor) => void;
   onSelect?: (t: WarpTarget) => void;
   onClose?: () => void;
@@ -51,12 +101,12 @@ export class SystemMap {
 
   constructor(private eph: Ephemeris, private ship: Ship, private warp: WarpDrive) {
     const top = el('div', 'map-top');
-    top.append(el('div', 'map-title', 'SOLAR SYSTEM <span>true sizes and distances · top-down ecliptic view</span>'));
+    top.append(el('div', 'map-title', 'SOLAR SYSTEM <span>true sizes and distances</span>'));
     const close = el('button', 'btn icon', '✕');
     close.title = 'Close map (M / Esc)';
     close.onclick = () => this.onClose?.();
     top.append(close);
-    const hint = el('div', 'map-hint', 'Scroll / pinch to zoom · drag to pan · click a body, or empty space to warp to coordinates · a ring marks a body too small to see at this zoom');
+    const hint = el('div', 'map-hint', 'Scroll or pinch to zoom · drag to pan · tap a body to select it, or empty space for coordinates');
     this.root.append(this.canvas, top, this.list, this.info, hint);
     this.buildList();
     this.bindPointer();
@@ -64,18 +114,19 @@ export class SystemMap {
 
   private buildList(): void {
     const groups: BodyState[] = this.eph.list.filter((s) => s.def.id === 'sun' || s.parent?.def.id === 'sun');
+    const button = (s: BodyState, cls: string) => {
+      const b = el('button', cls, s.def.name);
+      b.style.setProperty('--dot', bodyRgb(s.def.color, 1.05));
+      b.onclick = () => this.focusBody(s.def.id, true);
+      this.listButtons.set(s.def.id, b);
+      return b;
+    };
     for (const g of groups) {
       const row = el('div', 'map-group');
-      const b = el('button', 'map-body', g.def.name);
-      b.onclick = () => this.focusBody(g.def.id, true);
-      row.append(b);
+      row.append(button(g, 'map-body'));
       if (g.children.length) {
         const kids = el('div', 'map-moons');
-        for (const k of g.children) {
-          const kb = el('button', 'map-moon', k.def.name);
-          kb.onclick = () => this.focusBody(k.def.id, true);
-          kids.append(kb);
-        }
+        for (const k of g.children) kids.append(button(k, 'map-moon'));
         row.append(kids);
       }
       this.list.append(row);
@@ -87,13 +138,11 @@ export class SystemMap {
     const s = this.eph.get(id);
     this.follow = id;
     this.center.copy(s.pos);
-    const w = this.canvas.clientWidth || window.innerWidth;
-    const h = this.canvas.clientHeight || window.innerHeight;
     let extent: number;
     if (id === 'sun') extent = Math.max(...s.children.map((c) => c.pos.length())) * 1.05;
     else if (s.children.length) extent = Math.max(...s.children.map((c) => c.pos.distanceTo(s.pos))) * 1.25;
     else extent = s.def.radius * 40;
-    this.targetScale = (Math.min(w, h) * 0.45) / extent;
+    this.targetScale = (Math.min(this.W, this.H) * 0.45) / extent;
     if (select) this.select({ kind: 'body', id });
   }
 
@@ -123,18 +172,46 @@ export class SystemMap {
 
   resize(): void {
     this.dpr = Math.min(window.devicePixelRatio || 1, 2);
-    this.canvas.width = Math.round(this.canvas.clientWidth * this.dpr) || 1;
-    this.canvas.height = Math.round(this.canvas.clientHeight * this.dpr) || 1;
+    this.W = this.canvas.clientWidth || window.innerWidth;
+    this.H = this.canvas.clientHeight || window.innerHeight;
+    this.canvas.width = Math.round(this.W * this.dpr) || 1;
+    this.canvas.height = Math.round(this.H * this.dpr) || 1;
+    this.buildBackground();
   }
 
-  private toScreen(p: Vector3): [number, number] {
-    const w = this.canvas.width / this.dpr, h = this.canvas.height / this.dpr;
-    return [w / 2 + (p.x - this.center.x) * this.scale, h / 2 + (p.z - this.center.z) * this.scale];
+  /** Deep-space backdrop with faint dust, drawn once per resize and blitted every frame. */
+  private buildBackground(): void {
+    const { W, H, dpr } = this;
+    const c = this.bg;
+    c.width = this.canvas.width;
+    c.height = this.canvas.height;
+    const g = c.getContext('2d')!;
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const grad = g.createRadialGradient(W * 0.5, H * 0.45, 0, W * 0.5, H * 0.5, Math.hypot(W, H) * 0.6);
+    grad.addColorStop(0, '#07111d');
+    grad.addColorStop(1, '#010308');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, W, H);
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    const n = Math.round((W * H) / 2600);
+    for (let i = 0; i < n; i++) {
+      const a = rnd() * rnd() * 0.5 + 0.04;
+      g.fillStyle = `rgba(200,220,255,${a.toFixed(3)})`;
+      g.fillRect(rnd() * W, rnd() * H, 1, 1);
+    }
+  }
+
+  private sx(x: number): number {
+    return this.W / 2 + (x - this.center.x) * this.scale;
+  }
+
+  private sy(z: number): number {
+    return this.H / 2 + (z - this.center.z) * this.scale;
   }
 
   private toWorld(x: number, y: number, out: Vector3): Vector3 {
-    const w = this.canvas.width / this.dpr, h = this.canvas.height / this.dpr;
-    return out.set(this.center.x + (x - w / 2) / this.scale, 0, this.center.z + (y - h / 2) / this.scale);
+    return out.set(this.center.x + (x - this.W / 2) / this.scale, 0, this.center.z + (y - this.H / 2) / this.scale);
   }
 
   private bindPointer(): void {
@@ -154,7 +231,14 @@ export class SystemMap {
     });
     c.addEventListener('pointermove', (e) => {
       const p = this.pointers.get(e.pointerId);
-      if (!p) return;
+      if (!p) {
+        // hover highlight with a mouse
+        if (e.pointerType === 'mouse') {
+          this.hover = this.pick(e.offsetX, e.offsetY)?.state ?? null;
+          c.style.cursor = this.hover ? 'pointer' : '';
+        }
+        return;
+      }
       const dx = e.offsetX - p.x, dy = e.offsetY - p.y;
       if (this.pointers.size === 1) {
         this.dragDist += Math.abs(dx) + Math.abs(dy);
@@ -162,6 +246,7 @@ export class SystemMap {
           this.follow = null;
           this.center.x -= dx / this.scale;
           this.center.z -= dy / this.scale;
+          c.style.cursor = 'grabbing';
         }
       }
       p.x = e.offsetX;
@@ -176,10 +261,12 @@ export class SystemMap {
     });
     const up = (e: PointerEvent) => {
       const had = this.pointers.delete(e.pointerId);
+      c.style.cursor = '';
       if (had && this.pointers.size === 0 && this.dragDist <= 4) this.click(e.offsetX, e.offsetY);
     };
     c.addEventListener('pointerup', up);
     c.addEventListener('pointercancel', (e) => this.pointers.delete(e.pointerId));
+    c.addEventListener('pointerleave', () => (this.hover = null));
     c.addEventListener('dblclick', (e) => {
       const h = this.pick(e.offsetX, e.offsetY);
       if (h) this.focusBody(h.state.def.id, true);
@@ -202,7 +289,8 @@ export class SystemMap {
   private pick(x: number, y: number): Hit | null {
     let best: Hit | null = null;
     let bd = 14;
-    for (const h of this.hits) {
+    for (let i = 0; i < this.hitN; i++) {
+      const h = this.hits[i];
       const d = Math.hypot(h.x - x, h.y - y) - h.r;
       if (d < bd) {
         bd = d;
@@ -230,6 +318,10 @@ export class SystemMap {
   private renderInfo(): void {
     const t = this.selection;
     this.info.innerHTML = '';
+    this.shown.clear();
+    this.distEl = null;
+    this.chipEls = [];
+    for (const [id, b] of this.listButtons) b.classList.toggle('on', t?.kind === 'body' && t.id === id);
     if (!t) {
       this.info.append(el('div', 'muted', 'Select a destination'));
       return;
@@ -244,12 +336,15 @@ export class SystemMap {
     } else {
       this.info.append(el('div', 'info-kind', 'Coordinates in the ecliptic plane'));
     }
-    const dist = el('div', 'info-dist');
-    this.info.append(dist);
+    this.distEl = el('div', 'info-dist');
+    this.info.append(this.distEl);
     const chips = el('div', 'chips');
     for (const f of WARP_FACTORS) {
       const b = el('button', 'chip' + (f === this.warp.factor ? ' on' : ''));
-      b.dataset.f = String(f);
+      b.append(el('b', undefined, `${f}c`));
+      const eta = el('span');
+      b.append(eta);
+      this.chipEls.push(eta);
       b.onclick = () => {
         this.onFactor?.(f);
         this.renderInfo();
@@ -263,131 +358,250 @@ export class SystemMap {
     this.updateInfo();
   }
 
+  /** Writes text only when it changed, so the panel never forces a layout for nothing. */
+  private setText(e: HTMLElement, s: string): void {
+    if (this.shown.get(e) === s) return;
+    this.shown.set(e, s);
+    e.textContent = s;
+  }
+
   private updateInfo(): void {
     const t = this.selection;
-    if (!t) return;
+    if (!t || !this.distEl) return;
     const p = this.warp.resolve(_a, t);
     if (!p) return;
     const ship = this.ship.absPos(_b);
     // warp times are for the trip to the arrival point; the distance shown is to the body's centre
     const d = p.distanceTo(ship);
     const dc = t.kind === 'body' ? this.eph.get(t.id).pos.distanceTo(ship) : d;
-    const dist = this.info.querySelector('.info-dist');
-    if (dist) dist.textContent = `Distance ${fmtDistance(dc)} · light time ${fmtDuration(dc / 299792.458)}`;
-    this.info.querySelectorAll<HTMLButtonElement>('.chip').forEach((b) => {
-      const f = Number(b.dataset.f);
-      b.innerHTML = `<b>${f}c</b><span>${fmtDuration(d / (f * 299792.458))}</span>`;
-    });
+    this.setText(this.distEl, `Distance ${fmtDistance(dc)} · light time ${fmtDuration(dc / C_KMS)}`);
+    WARP_FACTORS.forEach((f, i) => this.setText(this.chipEls[i], fmtDuration(d / (f * C_KMS))));
   }
 
-  private orbit(s: BodyState, simMs: number): Vector3[] {
-    let c = this.orbits.get(s.def.id);
-    if (!c || Math.abs(c.t - simMs) > 12 * 3.6e6) {
-      c = { t: simMs, pts: this.eph.sampleOrbit(s.def.id, s.parent?.def.id === 'sun' ? 360 : 128) };
-      this.orbits.set(s.def.id, c);
+  private orbit(s: BodyState, simMs: number, allowResample: boolean): Orbit {
+    let o = this.orbits.get(s.def.id);
+    // the shape barely changes over time; refresh after a few percent of a period, one orbit per frame
+    const a = s.pos.distanceTo(s.parent!.pos);
+    const period = 2 * Math.PI * Math.sqrt((a * a * a) / s.parent!.def.gm) * 1000;
+    const stale = o && Math.abs(o.t - simMs) > Math.max(12 * 3.6e6, period * 0.03);
+    if (!o || (stale && allowResample)) {
+      const pts = this.eph.sampleOrbit(s.def.id, s.parent?.def.id === 'sun' ? 360 : 128);
+      const xz = new Float64Array(pts.length * 2);
+      let rMin = Infinity, rMax = 0;
+      pts.forEach((p, i) => {
+        xz[i * 2] = p.x;
+        xz[i * 2 + 1] = p.z;
+        const r = Math.hypot(p.x, p.z);
+        rMin = Math.min(rMin, r);
+        rMax = Math.max(rMax, r);
+      });
+      const planet = s.parent?.def.id === 'sun';
+      o = {
+        t: simMs, xz, rMin, rMax,
+        stroke: bodyRgb(s.def.color, 0.9, planet ? 0.3 : 0.2),
+        strokeHi: bodyRgb(s.def.color, 1.05, 0.55),
+      };
+      this.orbits.set(s.def.id, o);
     }
-    return c.pts;
+    return o;
+  }
+
+  /**
+   * Strokes an orbit clipped to the screen, so a huge orbit seen at close zoom costs no more than a
+   * small one. The body's own position is spliced in, so the line always runs exactly through it.
+   */
+  private strokeOrbit(o: Orbit, s: BodyState, px: number, py: number): void {
+    const ctx = this.ctx;
+    const { xz } = o;
+    const n = xz.length / 2;
+    const sc = this.scale;
+    const rx = s.pos.x - s.parent!.pos.x, rz = s.pos.z - s.parent!.pos.z;
+    let j = 0, jd = Infinity;
+    for (let i = 0; i < n; i++) {
+      const d = (xz[i * 2] - rx) ** 2 + (xz[i * 2 + 1] - rz) ** 2;
+      if (d < jd) {
+        jd = d;
+        j = i;
+      }
+    }
+    const dPrev = j > 0 ? (xz[j * 2 - 2] - rx) ** 2 + (xz[j * 2 - 1] - rz) ** 2 : Infinity;
+    const dNext = j < n - 1 ? (xz[j * 2 + 2] - rx) ** 2 + (xz[j * 2 + 3] - rz) ** 2 : Infinity;
+    const at = (dPrev < dNext ? j : j + 1); // the body goes before this sample
+    const { W, H } = this;
+    // perturbed orbits sampled over one period end a little short of where they began: close the gap
+    const closes = Math.hypot(xz[0] - xz[n * 2 - 2], xz[1] - xz[n * 2 - 1]) < o.rMax * 0.05;
+    let lx = 0, ly = 0, pen = false;
+    ctx.beginPath();
+    for (let w = 0; w <= n + (closes ? 1 : 0); w++) {
+      const v = w > n ? 0 : w;
+      let kx: number, kz: number;
+      if (v === at) {
+        kx = rx;
+        kz = rz;
+      } else {
+        const i = v < at ? v : v - 1;
+        kx = xz[i * 2];
+        kz = xz[i * 2 + 1];
+      }
+      const x = px + kx * sc, y = py + kz * sc;
+      if (w > 0) {
+        if (clip(lx, ly, x, y, W, H)) {
+          const dx = x - lx, dy = y - ly;
+          if (!pen || clipT0 > 0) ctx.moveTo(lx + dx * clipT0, ly + dy * clipT0);
+          ctx.lineTo(lx + dx * clipT1, ly + dy * clipT1);
+          pen = clipT1 === 1;
+        } else pen = false;
+      }
+      lx = x;
+      ly = y;
+    }
+    ctx.stroke();
+  }
+
+  private addHit(state: BodyState, x: number, y: number, r: number): void {
+    let h = this.hits[this.hitN];
+    if (!h) this.hits.push((h = { state, x, y, r }));
+    h.state = state;
+    h.x = x;
+    h.y = y;
+    h.r = r;
+    this.hitN++;
+  }
+
+  /** Places a label unless it would overlap one already placed. */
+  private label(text: string, x: number, y: number, font: string, color: string): void {
+    const ctx = this.ctx;
+    ctx.font = font;
+    const w = ctx.measureText(text).width;
+    if (x + w > this.W - 8) x = Math.max(8, this.W - 8 - w);
+    const L = this.labels;
+    for (let i = 0; i < L.length; i += 3) {
+      if (x < L[i] + L[i + 2] + 6 && L[i] < x + w + 6 && Math.abs(L[i + 1] - y) < 13) return;
+    }
+    L.push(x, y, w);
+    ctx.fillStyle = color;
+    ctx.fillText(text, x, y);
   }
 
   draw(simMs: number, time: number): void {
     if (!this.open) return;
-    const ctx = this.ctx;
-    const dpr = this.dpr;
-    const W = this.canvas.width / dpr, H = this.canvas.height / dpr;
+    const { ctx, dpr, W, H } = this;
     // ease the zoom at the same pace whatever the frame rate
     const dt = Math.min(Math.max(time - this.lastTime, 0), 1);
     this.lastTime = time;
     this.scale *= Math.pow(this.targetScale / this.scale, 1 - Math.pow(0.82, dt * 60));
     if (this.follow) this.center.copy(this.eph.get(this.follow).pos);
+    const sc = this.scale;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(this.bg, 0, 0);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = '#02050a';
-    ctx.fillRect(0, 0, W, H);
+    ctx.lineWidth = 1;
 
     // AU rings around the Sun
     const sun = this.eph.get('sun');
-    const [sx, sy] = this.toScreen(sun.pos);
-    ctx.lineWidth = 1;
-    for (const au of [0.1, 0.5, 1, 2, 5, 10, 20, 30, 40, 50]) {
-      const r = au * AU_KM * this.scale;
-      if (r < 30 || r > Math.max(W, H) * 3) continue;
-      ctx.strokeStyle = 'rgba(120,160,200,0.07)';
+    const sx = this.sx(sun.pos.x), sy = this.sy(sun.pos.z);
+    const far = Math.hypot(Math.max(sx, W - sx), Math.max(sy, H - sy));
+    const near = Math.max(0, Math.hypot(Math.max(0, -sx, sx - W), Math.max(0, -sy, sy - H)));
+    ctx.strokeStyle = 'rgba(140,180,220,0.07)';
+    ctx.font = `600 10px ${FONT}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    for (const au of AU_RINGS) {
+      const r = au * AU_KM * sc;
+      // a ring much bigger than the screen is just a line across it: skip it
+      if (r < 40 || r > far || r < near || r > 3 * Math.max(W, H)) continue;
       ctx.beginPath();
       ctx.arc(sx, sy, r, 0, Math.PI * 2);
       ctx.stroke();
-      ctx.fillStyle = 'rgba(120,160,200,0.35)';
-      ctx.font = '11px system-ui, sans-serif';
-      ctx.fillText(`${au} AU`, sx + r * 0.707 + 4, sy - r * 0.707);
+      ctx.fillStyle = 'rgba(160,195,230,0.4)';
+      ctx.fillText(`${au} AU`, sx, sy - r - 3);
     }
+    ctx.textAlign = 'left';
 
-    // orbits
+    // orbits, clipped to the screen
+    const sel = this.selection;
+    const selId = sel?.kind === 'body' ? sel.id : null;
+    let resampled = false;
     for (const s of this.eph.list) {
       if (!s.parent) continue;
-      const pr = s.pos.distanceTo(s.parent.pos) * this.scale;
-      if (pr < 6) continue;
-      const pts = this.orbit(s, simMs);
-      const isPlanet = s.parent.def.id === 'sun';
-      ctx.strokeStyle = isPlanet ? 'rgba(95,212,255,0.28)' : 'rgba(95,212,255,0.18)';
-      ctx.beginPath();
-      const base = s.parent.pos;
-      for (let i = 0; i < pts.length; i++) {
-        const [x, y] = this.toScreen(_a.copy(pts[i]).add(base));
-        if (i) ctx.lineTo(x, y);
-        else ctx.moveTo(x, y);
-      }
-      ctx.stroke();
+      if (s.pos.distanceTo(s.parent.pos) * sc < 7) continue;
+      const o = this.orbit(s, simMs, !resampled);
+      if (o.t === simMs) resampled = true;
+      const px = this.sx(s.parent.pos.x), py = this.sy(s.parent.pos.z);
+      const rOut = o.rMax * sc + 2, rIn = o.rMin * sc - 2;
+      // skip orbits wholly off screen, or wrapping round the screen without crossing it
+      const cx = Math.max(0, Math.min(W, px)), cy = Math.max(0, Math.min(H, py));
+      if (Math.hypot(cx - px, cy - py) > rOut) continue;
+      if (Math.hypot(Math.max(px, W - px), Math.max(py, H - py)) < rIn) continue;
+      // highlight the selected or hovered body's orbit while it reads as an orbit, not a line across the screen
+      const hi = (s.def.id === selId || s === this.hover) && rOut < 3 * Math.max(W, H);
+      ctx.strokeStyle = hi ? o.strokeHi : o.stroke;
+      ctx.lineWidth = hi ? 1.5 : 1;
+      this.strokeOrbit(o, s, px, py);
     }
+    ctx.lineWidth = 1;
 
-    // bodies, at true size and position
-    this.hits = [];
-    const labels: [number, number][] = [];
+    // bodies, at true size and position; planets first so moon labels yield
+    this.hitN = 0;
+    this.labels.length = 0;
     ctx.textBaseline = 'middle';
-    // draw planets before moons so moon labels yield
-    const order = [...this.eph.list].sort((a, b) => a.depth - b.depth);
-    for (const s of order) {
-      if (s.parent && s.parent.def.id !== 'sun') {
+    for (let depth = 0; depth <= 2; depth++) {
+      for (const s of this.eph.list) {
+        if (s.depth !== depth) continue;
         // a moon whose orbit is under a few pixels would sit on top of its planet
-        const pr = s.pos.distanceTo(s.parent.pos) * this.scale;
-        if (pr < 7) continue;
-      }
-      const [x, y] = this.toScreen(s.pos);
-      const reach = (s.def.rings?.outer ?? s.def.radius) * this.scale + 50;
-      if (x < -reach || y < -reach || x > W + reach || y > H + reach) continue;
-      const r = drawBody(ctx, s, x, y, this.scale, { sun });
-      this.hits.push({ state: s, x, y, r });
-      if (!labels.some(([lx, ly]) => Math.abs(lx - x) < 60 && Math.abs(ly - y) < 14)) {
-        labels.push([x, y]);
-        ctx.fillStyle = s.depth <= 1 ? 'rgba(220,235,255,0.9)' : 'rgba(180,200,225,0.7)';
-        ctx.font = `${s.depth <= 1 ? 600 : 500} ${s.depth <= 1 ? 13 : 11}px system-ui, sans-serif`;
-        ctx.fillText(s.def.name, Math.min(x + r + 5, W - 60), y);
+        if (depth > 1 && s.pos.distanceTo(s.parent!.pos) * sc < 7) continue;
+        const x = this.sx(s.pos.x), y = this.sy(s.pos.z);
+        const reach = (s.def.rings?.outer ?? s.def.radius) * sc + 60;
+        if (x < -reach || y < -reach || x > W + reach || y > H + reach) continue;
+        const r = drawBody(ctx, s, x, y, sc, { sun });
+        this.addHit(s, x, y, r);
+        const on = s.def.id === selId, hov = s === this.hover;
+        if (hov && !on) {
+          ctx.strokeStyle = 'rgba(220,240,255,0.55)';
+          ctx.beginPath();
+          ctx.arc(x, y, r + 5, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        const big = depth <= 1;
+        this.label(
+          big ? s.def.name.toUpperCase() : s.def.name, x + r + 6, y,
+          big ? `700 12px ${FONT}` : `500 12px ${FONT}`,
+          on ? AMBER : hov ? '#ffffff' : big ? 'rgba(225,238,255,0.92)' : 'rgba(185,205,230,0.72)',
+        );
       }
     }
 
     // target: a ring on the body itself, the route to the arrival point beside it
     const shipAbs = this.ship.absPos(_b);
-    const [shx, shy] = this.toScreen(shipAbs);
-    const sel = this.selection;
+    const shx = this.sx(shipAbs.x), shy = this.sy(shipAbs.z);
     if (sel) {
       const p = this.warp.resolve(_a, sel);
       if (p) {
-        const [tx, ty] = this.toScreen(p);
-        ctx.strokeStyle = 'rgba(255,179,71,0.9)';
-        ctx.lineWidth = 1;
-        ctx.setLineDash([6, 6]);
-        ctx.lineDashOffset = -time * 20;
-        ctx.beginPath();
-        ctx.moveTo(shx, shy);
-        ctx.lineTo(tx, ty);
-        ctx.stroke();
-        ctx.setLineDash([]);
+        const tx = this.sx(p.x), ty = this.sy(p.z);
+        ctx.strokeStyle = AMBER;
+        // clipped first: dashing a line that runs millions of pixels off screen would stall the frame
+        if (clip(shx, shy, tx, ty, W, H)) {
+          const dx = tx - shx, dy = ty - shy;
+          const len = Math.hypot(dx, dy);
+          ctx.setLineDash([6, 6]);
+          ctx.lineDashOffset = ((-time * 20 + clipT0 * len) % 12);
+          ctx.beginPath();
+          ctx.moveTo(shx + dx * clipT0, shy + dy * clipT0);
+          ctx.lineTo(shx + dx * clipT1, shy + dy * clipT1);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
         const pulse = Math.sin(time * 4) * 2;
         let cross = true;
         if (sel.kind === 'body') {
           const b = this.eph.get(sel.id);
-          const [bx, by] = this.toScreen(b.pos);
-          const br = Math.max((b.def.rings?.outer ?? b.def.radius) * this.scale, 4);
-          ctx.beginPath();
-          ctx.arc(bx, by, br + 6 + pulse, 0, Math.PI * 2);
-          ctx.stroke();
+          const bx = this.sx(b.pos.x), by = this.sy(b.pos.z);
+          const br = Math.max((b.def.rings?.outer ?? b.def.radius) * sc, 4);
+          if (br < W * 2) {
+            ctx.beginPath();
+            ctx.arc(bx, by, br + 6 + pulse, 0, Math.PI * 2);
+            ctx.stroke();
+          }
           // mark the arrival point once it separates from the body's ring
           cross = Math.hypot(tx - bx, ty - by) > br + 14;
         } else {
@@ -405,17 +619,15 @@ export class SystemMap {
         }
       }
     }
-    // ship
+
+    // ship: outlined so the body underneath stays visible; the dot is its exact position
     const f = this.ship.forward(_a);
     ctx.save();
     ctx.translate(shx, shy);
     ctx.rotate(Math.atan2(f.z, f.x));
-    // outlined so the body underneath stays visible; the dot is the ship's exact position
     ctx.strokeStyle = '#ffffff';
     ctx.fillStyle = '#ffffff';
     ctx.lineWidth = 1.5;
-    ctx.shadowColor = '#5fd4ff';
-    ctx.shadowBlur = 6;
     ctx.beginPath();
     ctx.moveTo(10, 0);
     ctx.lineTo(-7, 6);
@@ -429,27 +641,33 @@ export class SystemMap {
     ctx.restore();
     ctx.lineWidth = 1;
     ctx.fillStyle = '#ffffff';
-    ctx.font = '600 11px system-ui, sans-serif';
+    ctx.font = `700 11px ${FONT}`;
     ctx.fillText('YOU', shx + 10, shy + 12);
 
     // scale bar
-    const targetPx = 140;
-    const km = targetPx / this.scale;
-    const pow = Math.pow(10, Math.floor(Math.log10(km)));
-    const nice = [1, 2, 5, 10].map((m) => m * pow).filter((v) => v <= km).pop() ?? pow;
-    const px = nice * this.scale;
-    ctx.strokeStyle = 'rgba(220,235,255,0.7)';
+    // a round length, in AU once the bar is that long (as it's labelled)
+    const unit = 140 / sc > 0.05 * AU_KM ? AU_KM : 1;
+    const len = 140 / sc / unit;
+    const pow = Math.pow(10, Math.floor(Math.log10(len)));
+    const nice = ([1, 2, 5, 10].map((m) => m * pow).filter((v) => v <= len).pop() ?? pow) * unit;
+    const px = nice * sc;
+    const bx = 24, by = H - 22;
+    ctx.strokeStyle = 'rgba(220,235,255,0.6)';
     ctx.beginPath();
-    ctx.moveTo(24, H - 30);
-    ctx.lineTo(24 + px, H - 30);
-    ctx.moveTo(24, H - 35);
-    ctx.lineTo(24, H - 25);
-    ctx.moveTo(24 + px, H - 35);
-    ctx.lineTo(24 + px, H - 25);
+    ctx.moveTo(bx, by - 4);
+    ctx.lineTo(bx, by);
+    ctx.lineTo(bx + px, by);
+    ctx.lineTo(bx + px, by - 4);
     ctx.stroke();
-    ctx.fillStyle = 'rgba(220,235,255,0.8)';
-    ctx.font = '12px system-ui, sans-serif';
-    ctx.fillText(fmtDistance(nice), 24, H - 46);
-    this.updateInfo();
+    ctx.fillStyle = 'rgba(220,235,255,0.75)';
+    ctx.font = `600 12px ${FONT}`;
+    ctx.fillText(fmtDistance(nice), bx, by - 12);
+
+    // the panel's numbers change slowly: a few updates a second is plenty
+    this.infoAge += dt;
+    if (this.infoAge > 0.25) {
+      this.infoAge = 0;
+      this.updateInfo();
+    }
   }
 }
