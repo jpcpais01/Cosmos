@@ -11,6 +11,15 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     date: '2026-10-11',
+    title: 'A subtler night sky',
+    notes: [
+      'The Milky Way and faint stars are dimmer, closer to how faint they really look.',
+      'Like a real eye or camera, the stars fade when the sunlit Earth, the Sun or the lit hull are in view.',
+      'Turn towards empty space and they come back.',
+    ],
+  },
+  {
+    date: '2026-10-11',
     title: 'Fixed gloves',
     notes: ['The pilot\'s gloves no longer have see-through fingertips and palms, and the fingers wrap round the stick and throttle instead of cutting into them.'],
   },

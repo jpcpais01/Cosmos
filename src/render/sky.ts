@@ -69,7 +69,7 @@ vec3 faintStars(vec3 d, float pxPerRad, float px, vec3 crowd) {
   float lum = dot(crowd, vec3(0.2126, 0.7152, 0.0722));
   vec3 tint = crowd / max(lum, 1e-3);
   float prob = min(0.6, 0.05 + 2.5 * lum);
-  float glow = 0.004 + 1.2 * lum;
+  float glow = 0.0025 + 0.6 * lum;
   float sigma = 0.55 * px;
   vec3 sum = vec3(0.0);
   float n = 79.0;
@@ -93,6 +93,21 @@ vec3 faintStars(vec3 d, float pxPerRad, float px, vec3 crowd) {
     n *= 1.43;
   }
   return sum;
+}
+`;
+
+/**
+ * How much of the sky the eye can see, from the scene's adapted brightness (the post pipeline's
+ * 1x1 eye-adaptation target, last frame). Facing empty space it is 1; with the sunlit Earth, the
+ * Sun or the lit hull in view the eye adapts to them and the faint sky fades, as in photos taken
+ * in orbit.
+ */
+const SKY_VISIBILITY = /* glsl */ `
+uniform sampler2D uAdapt;
+uniform float uAdaptScale;
+float skyVisibility() {
+  float avg = texture(uAdapt, vec2(0.5)).r * uAdaptScale;
+  return clamp(pow(0.005 / max(avg, 1e-5), 0.8), 0.1, 1.0);
 }
 `;
 
@@ -121,6 +136,7 @@ ${MATH}
 ${EQUIRECT}
 ${ABERRATION}
 ${FAINT_STARS}
+${SKY_VISIBILITY}
 varying vec2 vNdc;
 uniform mat3 uCamRot;
 uniform vec2 uTan;
@@ -151,6 +167,7 @@ void main() {
     c += faintStars(g, pxPerRad, uPx, crowd) * uStarGain;
   }
 #endif
+  c *= skyVisibility();
   if (uBeta > 0.0) {
     float D = doppler(dObs, uVel, uBeta);
     c *= dopplerTint(D) * clamp(D * D, 0.05, 2.5);
@@ -170,6 +187,8 @@ void main() {
         uPx: { value: 1 },
         uVel: { value: new Vector3(0, 0, -1) },
         uBeta: { value: 0 },
+        uAdapt: { value: null },
+        uAdaptScale: { value: 1 },
       },
     });
     const bg = new Mesh(tri, this.bgMat);
@@ -181,6 +200,7 @@ void main() {
       vertexShader: /* glsl */ `
 ${STAR_COLOR}
 ${ABERRATION}
+${SKY_VISIBILITY}
 attribute vec3 aDir;
 attribute vec2 aMagBv;
 uniform mat4 uViewProj;
@@ -202,7 +222,7 @@ void main() {
   vec3 d = normalize(aDir);
   float mag = aMagBv.x / 16.0 - 2.0;
   float bv = aMagBv.y / 100.0 - 0.5;
-  float I = uBrightness * 1.5 * pow(10.0, -0.4 * 0.58 * mag);
+  float I = uBrightness * 1.5 * pow(10.0, -0.4 * 0.58 * mag) * skyVisibility();
   vec3 col = bvToRgb(bv);
   vec3 d0 = d;
   if (uBeta > 0.0) {
@@ -252,8 +272,18 @@ void main() {
         uBrightness: { value: 1 },
         uVel: { value: new Vector3(0, 0, -1) },
         uBeta: { value: 0 },
+        uAdapt: { value: null },
+        uAdaptScale: { value: 1 },
       },
     });
+  }
+
+  /** the eye's adapted brightness (1x1 texture) and the factor that turns it into displayed units */
+  setAdaptation(t: Texture, scale: number): void {
+    for (const m of [this.bgMat, this.starMat]) {
+      m.uniforms.uAdapt.value = t;
+      m.uniforms.uAdaptScale.value = scale;
+    }
   }
 
   setMilkyWay(t: Texture): void {
@@ -308,7 +338,7 @@ void main() {
     (bu.uCamRot.value as Matrix3).setFromMatrix4(new Matrix4().makeRotationFromQuaternion(camQuat));
     // projection: x_ndc = P00 * x / -z  ->  tan of the half-angles
     (bu.uTan.value as Vector2).set(1 / proj.elements[0], 1 / proj.elements[5]);
-    bu.uIntensity.value = 0.2 * brightness;
+    bu.uIntensity.value = 0.1 * brightness;
     bu.uPxPerRad.value = 0.5 * viewportPx.y * proj.elements[5];
     bu.uPx.value = px;
     bu.uStarGain.value = brightness * (1 - Math.min(1, warp));
@@ -322,7 +352,8 @@ void main() {
     su.uBrightness.value = brightness * (1 - Math.min(1, warp));
     (su.uVel.value as Vector3).copy(vel);
     su.uBeta.value = beta;
-    // skip the stars the vertex shader would drop as too faint (I < 0.004, with up to 3x Doppler boost)
+    // skip the stars the vertex shader would drop as too faint (I < 0.004, with up to 3x Doppler boost);
+    // skyVisibility() only dims them further, so this count stays a safe upper bound
     const mags = this.starMags;
     if (this.stars && mags) {
       const peak = 1.5 * su.uBrightness.value * (beta > 0 ? 3 : 1);
