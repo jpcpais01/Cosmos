@@ -11,6 +11,11 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     date: '2026-10-11',
+    title: 'Patch notes in a popup',
+    notes: ['The patch notes now sit behind a small What\'s new button in the top right of the title screen. Close them with the X, a tap outside or Escape.'],
+  },
+  {
+    date: '2026-10-11',
     title: 'Landscape from the first touch',
     notes: [
       'On phones and tablets, the first touch anywhere (even on the loading or title screen) now switches to full screen and turns the game sideways, where the browser allows it (Android Chrome).',

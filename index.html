@@ -48,10 +48,21 @@
         <span>112,699 stars</span>
         <span>Live positions</span>
       </div>
-      <aside class="intro-notes" aria-labelledby="notes-heading">
-        <h2 id="notes-heading" class="notes-heading">Patch notes</h2>
-        <ol id="patch-notes" class="notes-list"></ol>
-      </aside>
+      <button id="notes-open" class="notes-btn" type="button" aria-haspopup="dialog" aria-controls="notes-pop">
+        <span class="notes-dot" aria-hidden="true"></span>What's new<span id="notes-ver" class="notes-ver"></span>
+      </button>
+      <div id="notes-pop" class="notes-pop" role="dialog" aria-modal="true" aria-labelledby="notes-heading">
+        <div class="notes-backdrop" data-close></div>
+        <div class="notes-card">
+          <div class="notes-top">
+            <h2 id="notes-heading" class="notes-heading">Patch notes</h2>
+            <button class="notes-close" type="button" aria-label="Close patch notes" data-close>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
+            </button>
+          </div>
+          <ol id="patch-notes" class="notes-list"></ol>
+        </div>
+      </div>
     </div>
     <div id="rotate" aria-hidden="true">
       <div class="rot-phone"></div>
