@@ -9,6 +9,12 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    version: '0.22',
+    date: '2026-10-11',
+    title: 'Seamless warp colours',
+    notes: ['The warp tunnel\'s colours now blend all the way round, without the hard line on the left.'],
+  },
+  {
     version: '0.21',
     date: '2026-10-11',
     title: 'Your pilot',
