@@ -69,6 +69,12 @@ export default defineConfig({
             },
           },
           {
+            // other star systems' skies, fetched the first time you go there
+            urlPattern: ({ url }) => url.pathname.startsWith('/data/') && url.pathname !== '/data/stars.bin',
+            handler: 'CacheFirst',
+            options: { cacheName: 'cosmos-data', expiration: { maxEntries: 20 }, cacheableResponse: { statuses: [0, 200] } },
+          },
+          {
             urlPattern: ({ url }) => url.origin === 'https://fonts.googleapis.com' || url.origin === 'https://fonts.gstatic.com',
             handler: 'StaleWhileRevalidate',
             options: { cacheName: 'cosmos-fonts', expiration: { maxEntries: 20 } },

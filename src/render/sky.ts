@@ -4,22 +4,9 @@ import {
 } from 'three';
 import { EQUIRECT, MATH, STAR_COLOR } from './glsl';
 import { SHIP_MASK, shipMaskUniforms } from './shipMask';
-import { OBLIQUITY_J2000 } from '../sim/constants';
 
-/** World (ecliptic, Y-up) -> galactic rotation. */
-export function worldToGalactic(): Matrix3 {
-  const ce = Math.cos(OBLIQUITY_J2000), se = Math.sin(OBLIQUITY_J2000);
-  // world -> ecliptic (x, y, z) = (X, -Z, Y); ecliptic -> equatorial
-  const w2e = new Matrix3().set(1, 0, 0, 0, 0, -1, 0, 1, 0);
-  const e2q = new Matrix3().set(1, 0, 0, 0, ce, -se, 0, se, ce);
-  // equatorial (ICRS) -> galactic (Hipparcos, ESA 1997)
-  const q2g = new Matrix3().set(
-    -0.0548755604, -0.873437090, -0.4838350155,
-    0.4941094279, -0.4448296300, 0.7469822445,
-    -0.8676661490, -0.1980763734, 0.4559837762,
-  );
-  return q2g.multiply(e2q).multiply(w2e);
-}
+export { worldToGalactic } from '../sim/galactic';
+import { worldToGalactic } from '../sim/galactic';
 
 const ABERRATION = /* glsl */ `
 // Relativistic aberration: where a source at direction d appears for an observer moving along v at speed beta.
@@ -123,6 +110,8 @@ export class Sky {
   private stars?: Mesh;
   /** catalogue magnitudes, brightest first (the instance order) */
   private starMags?: Float32Array;
+  /** each system's bright-star catalogue, by url, once loaded */
+  private catalogues = new Map<string, { mesh: Mesh; mags: Float32Array }>();
   private w2g = worldToGalactic();
   private viewProj = new Matrix4();
 
@@ -185,7 +174,7 @@ void main() {
       uniforms: {
         uCamRot: { value: new Matrix3() },
         uTan: { value: new Vector2(1, 1) },
-        uW2G: { value: this.w2g },
+        uW2G: { value: this.w2g.clone() },
         uMilkyWay: { value: null },
         uIntensity: { value: 0.35 },
         uStarGain: { value: 1 },
@@ -293,6 +282,22 @@ void main() {
     }
   }
 
+  /** Orientation of the current system's frame (system -> ecliptic world); the Milky Way turns with it. */
+  setFrame(toEcliptic: Matrix3): void {
+    (this.bgMat.uniforms.uW2G.value as Matrix3).multiplyMatrices(this.w2g, toEcliptic);
+  }
+
+  /** Shows a loaded catalogue (its directions are already in that system's frame). */
+  useStars(url: string): boolean {
+    const c = this.catalogues.get(url);
+    if (!c) return false;
+    if (this.stars) this.scene.remove(this.stars);
+    this.stars = c.mesh;
+    this.starMags = c.mags;
+    this.scene.add(c.mesh);
+    return true;
+  }
+
   setMilkyWay(t: Texture): void {
     this.bgMat.uniforms.uMilkyWay.value = t;
   }
@@ -303,7 +308,12 @@ void main() {
     this.bgMat.needsUpdate = true;
   }
 
-  async loadStars(url: string): Promise<number> {
+  /** Loads a catalogue; `show` makes it the one drawn. */
+  async loadStars(url: string, show = true): Promise<number> {
+    if (this.catalogues.has(url)) {
+      if (show) this.useStars(url);
+      return this.catalogues.get(url)!.mags.length;
+    }
     const buf = await (await fetch(url)).arrayBuffer();
     const n = buf.byteLength / 8;
     const dv = new DataView(buf);
@@ -320,7 +330,6 @@ void main() {
       mb[i * 2 + 1] = dv.getUint8(src * 8 + 7);
       mags[i] = mb[i * 2] / 16 - 2;
     });
-    this.starMags = mags;
     const g = new InstancedBufferGeometry();
     // quad: x along (0..1), y across (-1..1)
     g.setAttribute('position', new BufferAttribute(new Float32Array([0, -1, 0, 1, -1, 0, 1, 1, 0, 0, 1, 0]), 3));
@@ -328,10 +337,11 @@ void main() {
     g.setAttribute('aDir', new InstancedBufferAttribute(dirs, 3, true));
     g.setAttribute('aMagBv', new InstancedBufferAttribute(mb, 2, false));
     g.instanceCount = n;
-    this.stars = new Mesh(g, this.starMat);
-    this.stars.frustumCulled = false;
-    this.stars.renderOrder = 1;
-    this.scene.add(this.stars);
+    const mesh = new Mesh(g, this.starMat);
+    mesh.frustumCulled = false;
+    mesh.renderOrder = 1;
+    this.catalogues.set(url, { mesh, mags });
+    if (show) this.useStars(url);
     return n;
   }
 

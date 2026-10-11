@@ -57,11 +57,14 @@ uniform float uNormalOn;
 uniform float uNormalStrength;
 #endif
 
-#ifdef EARTH
+#if defined(EARTH) || defined(LAVA)
 uniform sampler2D uAux;
 uniform sampler2D uAuxW;
 uniform vec4 uAuxR;
 uniform float uAuxOn;
+#endif
+#ifdef LAVA
+uniform float uGlow;
 #endif
 
 #ifdef DETAIL
@@ -339,6 +342,16 @@ void main() {
 
   color *= detailShade;
 
+#ifdef LAVA
+  // glow of hot rock: the aux map holds the surface temperature (800 K + 1600 K * r) where it is hot
+  // enough to see; Planck's law at 610/550/465 nm, relative to 2,000 K, in irradiance units
+  float hot = sampleLayered(uAux, uAuxW, uAuxR, uAuxOn, uv, gdx, gdy).r;
+  if (hot > 0.01) {
+    float T = 800.0 + 1600.0 * hot;
+    color += vec3(1.0, 0.464, 0.099) * exp(vec3(23590.0, 26160.0, 30940.0) * (1.0 / 2000.0 - 1.0 / T)) * uGlow;
+  }
+#endif
+
 #ifdef SHINE
   // reflected light from the parent planet (e.g. Earthshine on the Moon)
   color += albedo * uShineCol * max(dot(n, normalize(uShineDir)), 0.0);
@@ -386,11 +399,12 @@ export function createPlanetMaterial(def: BodyDef, map: Texture, hasNormal: bool
   if (def.shading === 'earth') defines.EARTH = '';
   if (def.shading === 'gas' || def.shading === 'icegiant') defines.GAS = '';
   if (def.shading === 'cloudy') defines.CLOUDY = '';
+  if (def.shading === 'lava') defines.LAVA = '';
   if (hasNormal) defines.NORMALMAP = '';
   if (def.rings) defines.RINGSHADOW = '';
   if (def.kind === 'moon') defines.SHINE = '';
   // solid ground you can fly low over gets synthetic close-up relief
-  if (detail && (def.shading === 'rocky' || def.shading === 'earth')) defines.DETAIL = '';
+  if (detail && (def.shading === 'rocky' || def.shading === 'earth' || def.shading === 'lava')) defines.DETAIL = '';
   const a = def.atmosphere;
   const axes = def.triaxial
     ? new Vector3(def.triaxial[0], def.triaxial[1], def.triaxial[2])
@@ -438,6 +452,7 @@ export function createPlanetMaterial(def: BodyDef, map: Texture, hasNormal: bool
       uAuxW: { value: null },
       uAuxR: { value: new Vector4(0, 0, 1, 1) },
       uAuxOn: { value: 0 },
+      uGlow: { value: 25 },
       uRingTex: { value: null },
       uDetail: { value: detail },
       uDetailScale: { value: 1 },

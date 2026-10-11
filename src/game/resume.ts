@@ -3,7 +3,7 @@ import type { Ship } from '../ship/flight';
 import type { ViewMode } from '../ship/cameraRig';
 import { VIEW_MODES } from '../ship/cameraRig';
 import type { WarpDrive, WarpTarget } from './warp';
-import { BODY_BY_ID } from '../sim/bodies';
+import { BODY_BY_ID, systemOf } from '../sim/bodies';
 import { WARP_FACTORS, type WarpFactor } from '../sim/constants';
 import type { SavedLocation } from './locations';
 
@@ -106,6 +106,7 @@ export function lastFlightLocation(f: LastFlight): SavedLocation {
     name: 'Where you left off',
     description: '',
     epoch: live ? Date.now() : f.simMs,
+    system: systemOf(f.frame),
     place(eph, ship) {
       ship.frame = eph.get(f.frame);
       ship.rel.set(...f.rel);

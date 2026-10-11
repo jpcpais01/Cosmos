@@ -1,8 +1,9 @@
 import * as Astronomy from 'astronomy-engine';
 import { Matrix3, Vector3 } from 'three';
 import { AU_KM, DAY_MS, DEG, J2000_MS } from './constants';
-import { BODIES, type BodyDef, type MoonOrbit } from './bodies';
+import { BODIES, systemOf, type BodyDef, type ExoOrbit, type MoonOrbit } from './bodies';
 import { bodyToWorldMatrix, eqjToWorld, matrixFromAxes } from './frames';
+import { SYSTEM_BY_ID, type StarSystem } from './systems';
 
 const ASTRO_BODY: Record<string, Astronomy.Body> = {
   sun: Astronomy.Body.Sun,
@@ -22,7 +23,7 @@ const GALILEAN = ['io', 'europa', 'ganymede', 'callisto'] as const;
 
 export interface BodyState {
   def: BodyDef;
-  /** Heliocentric position in the world frame (km, float64). */
+  /** Position relative to its system's star, in that system's frame (km, float64). */
   pos: Vector3;
   /** Body-fixed -> world rotation. */
   rot: Matrix3;
@@ -67,26 +68,42 @@ function keplerPosition(o: MoonOrbit, tDays: number, out: Vector3, normal?: Vect
   return out;
 }
 
+/** Position on a circular exoplanet orbit (system frame) and its orbit normal. */
+function exoPosition(o: ExoOrbit, ms: number, out: Vector3, normal: Vector3): Vector3 {
+  const d = o.tilt * DEG;
+  const th = (2 * Math.PI * (((ms - o.t0) / DAY_MS / o.period) % 1));
+  // e1: toward the Sun at transit (local +X, tilted up by the orbit's tilt); e2 = normal x e1 = -Z
+  const c = Math.cos(th) * o.a, s = Math.sin(th) * o.a;
+  normal.set(-Math.sin(d), Math.cos(d), 0);
+  return out.set(c * Math.cos(d), c * Math.sin(d), -s);
+}
+
 export class Ephemeris {
   readonly states = new Map<string, BodyState>();
-  readonly list: BodyState[] = [];
+  /** bodies of the system the ship is in */
+  list: BodyState[] = [];
+  /** every body of every system */
+  readonly all: BodyState[] = [];
+  system: StarSystem = SYSTEM_BY_ID.sol;
   time: Astronomy.AstroTime = Astronomy.MakeTime(new Date());
   private orbitNormals = new Map<string, Vector3>();
   private parentEquator = new Map<string, Matrix3>();
+  private simMs = Date.now();
 
   constructor() {
     for (const def of BODIES) {
       const s: BodyState = { def, pos: new Vector3(), rot: new Matrix3(), soi: Infinity, children: [], depth: 0 };
       this.states.set(def.id, s);
-      this.list.push(s);
+      this.all.push(s);
     }
-    for (const s of this.list) {
+    this.setSystem('sol');
+    for (const s of this.all) {
       if (s.def.parent) {
         s.parent = this.states.get(s.def.parent)!;
         s.parent.children.push(s);
       }
     }
-    for (const s of this.list) {
+    for (const s of this.all) {
       let d = 0;
       for (let p = s.parent; p; p = p.parent) d++;
       s.depth = d;
@@ -101,16 +118,28 @@ export class Ephemeris {
 
   private lastMs = NaN;
 
+  /** The star of the system the ship is in. */
+  get star(): BodyState {
+    return this.states.get(this.system.star)!;
+  }
+
+  /** Moves the game into another star system (its bodies become `list`). */
+  setSystem(id: string): void {
+    this.system = SYSTEM_BY_ID[id] ?? SYSTEM_BY_ID.sol;
+    this.list = this.all.filter((s) => systemOf(s.def.id) === this.system.id);
+  }
+
   update(simMs: number): void {
     // paused (or called twice for the same instant): every state is already right
     if (simMs === this.lastMs) return;
     this.lastMs = simMs;
     const time = Astronomy.MakeTime(new Date(simMs));
     this.time = time;
+    this.simMs = simMs;
     const tDays = (simMs - J2000_MS) / DAY_MS;
 
     // Sun, planets, Pluto: heliocentric.
-    for (const s of this.list) {
+    for (const s of this.all) {
       const id = s.def.id;
       if (id === 'sun') {
         s.pos.set(0, 0, 0);
@@ -143,8 +172,28 @@ export class Ephemeris {
       s.pos.add(jup.pos);
     }
 
+    // Planets of other stars: circular orbits phased from their transits; stars sit at their frame's origin.
+    for (const s of this.all) {
+      const def = s.def;
+      if (def.kind === 'star' && def.system) s.pos.set(0, 0, 0);
+      if (def.exo && s.parent) exoPosition(def.exo, simMs, s.pos, this.orbitNormals.get(def.id)!).add(s.parent.pos);
+      if (def.rotation === 'spin' && def.spin) {
+        // spin axis: the orbit normal tipped by the obliquity; prime meridian turning at the spin rate
+        const n = def.exo ? this.orbitNormals.get(def.id)! : _y.set(0, 1, 0);
+        const ob = def.spin.obliquity * DEG;
+        _z.copy(n).multiplyScalar(Math.cos(ob)).addScaledVector(_v.set(1, 0, 0).cross(n).normalize(), Math.sin(ob)).normalize();
+        _x.set(0, 0, 1).cross(_z).normalize();
+        _y.crossVectors(_z, _x);
+        const w = ((simMs - J2000_MS) / 3.6e6 / def.spin.periodH) * 2 * Math.PI;
+        const cw = Math.cos(w), sw = Math.sin(w);
+        _v.copy(_x).multiplyScalar(cw).addScaledVector(_y, sw);
+        _y.multiplyScalar(cw).addScaledVector(_x, -sw);
+        matrixFromAxes(_v, _y, _z, s.rot);
+      }
+    }
+
     // Other moons: Kepler elements relative to the parent's equator.
-    for (const s of this.list) {
+    for (const s of this.all) {
       const o = s.def.orbit;
       if (!o || !s.parent) continue;
       const eq = this.parentEquator.get(s.parent.def.id)!;
@@ -156,7 +205,7 @@ export class Ephemeris {
     }
 
     // Synchronous rotation: +X faces the parent, +Z along the orbit normal.
-    for (const s of this.list) {
+    for (const s of this.all) {
       if (s.def.rotation !== 'synchronous' || !s.parent) continue;
       _x.subVectors(s.parent.pos, s.pos).normalize();
       _z.copy(this.orbitNormals.get(s.def.id)!);
@@ -166,18 +215,19 @@ export class Ephemeris {
     }
 
     // Spheres of influence.
-    const sun = this.get('sun');
-    for (const s of this.list) {
-      if (!s.parent) continue;
+    for (const s of this.all) {
+      if (!s.parent) {
+        s.soi = Infinity;
+        continue;
+      }
       const a = s.pos.distanceTo(s.parent.pos);
       s.soi = Math.max(a * Math.pow(s.def.gm / s.parent.def.gm, 0.4), s.def.radius * 6);
     }
-    sun.soi = Infinity;
   }
 
-  /** Deepest body whose sphere of influence contains the point. */
+  /** Deepest body of the current system whose sphere of influence contains the point. */
   dominantBody(p: Vector3): BodyState {
-    let best = this.get('sun');
+    let best = this.star;
     let bestD = Infinity;
     for (const s of this.list) {
       if (!s.parent) continue;
@@ -206,6 +256,12 @@ export class Ephemeris {
     const def = s.def;
     const out: Vector3[] = [];
     if (!s.parent) return out;
+    if (def.exo) {
+      const P = def.exo.period * DAY_MS;
+      const nrm = new Vector3();
+      for (let k = 0; k <= n; k++) out.push(exoPosition(def.exo, this.simMs + (k / n) * P, new Vector3(), nrm));
+      return out;
+    }
     if (def.orbit) {
       const eq = this.parentEquator.get(s.parent.def.id)!;
       const period = Math.abs(def.orbit.period);

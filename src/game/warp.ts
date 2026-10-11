@@ -75,7 +75,7 @@ export class WarpDrive {
     const ship = this.ship.absPos(_a);
     const fromBody = _b.subVectors(ship, b.pos).normalize();
     if (b.def.kind !== 'star') {
-      const toSun = out.subVectors(this.eph.get('sun').pos, b.pos).normalize();
+      const toSun = out.subVectors(this.eph.star.pos, b.pos).normalize();
       fromBody.addScaledVector(toSun, 0.9);
       // keep a little elevation above the orbital plane for a nicer view
       fromBody.y += 0.12;

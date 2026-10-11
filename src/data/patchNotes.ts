@@ -11,6 +11,16 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     date: '2026-10-11',
+    title: 'Kepler-385: the first star beyond the Sun',
+    notes: [
+      'Kepler-385, a real Sun-like star 4,940 light years away in Cygnus, is now in the game with its seven planets, at the sizes, orbits and positions astronomers have measured. Each planet is where its transit times put it today.',
+      'Go there from the Saved locations panel (L): a magma ocean on KOI-2433.08, a lake of fire on KOI-2433.06, the deep-blue Kepler-385 b, banded Kepler-385 d, and a view of all seven worlds at once.',
+      'Nobody has pictures of these planets, so their surfaces are made from what is known: the two small rocky worlds are close enough to the star for their rock to melt and glow, and the five sub-Neptunes are coloured by how hot they are.',
+      'Its sky is different too. The Milky Way sits where it should from there, and the bright stars are a new, realistic set, because none of the stars we know are near enough to see.',
+    ],
+  },
+  {
+    date: '2026-10-11',
     title: 'See-through warp',
     notes: [
       'The warp is see-through now. The white glare when it engages is gone, and so is the milky haze from the bent starlight. Space still ripples and bends the same way.',

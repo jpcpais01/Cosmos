@@ -3,9 +3,8 @@ import {
   OrthographicCamera, Scene, ShaderMaterial, Texture, Vector3, WebGLRenderTarget, type WebGLRenderer,
 } from 'three';
 import { EQUIRECT, MATH } from './glsl';
-import type { Universe } from './universe';
+import { starIrradiance, type Universe } from './universe';
 import type { Ephemeris } from '../sim/ephemeris';
-import { AU_KM } from '../sim/constants';
 
 const N = 3;
 
@@ -90,7 +89,7 @@ export class EnvMap {
   private nextSig: number[] = [];
   private inputs: (Texture | null)[] = [];
 
-  constructor(private renderer: WebGLRenderer, private universe: Universe, private eph: Ephemeris, w2g: Matrix3) {
+  constructor(private renderer: WebGLRenderer, private universe: Universe, private eph: Ephemeris, private w2g: Matrix3) {
     this.target.texture.mapping = EquirectangularReflectionMapping;
     const tri = new BufferGeometry();
     tri.setAttribute('position', new BufferAttribute(new Float32Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]), 3));
@@ -101,7 +100,7 @@ export class EnvMap {
       depthWrite: false,
       uniforms: {
         uMilkyWay: { value: null },
-        uW2G: { value: w2g },
+        uW2G: { value: w2g.clone() },
         uSkyI: { value: 0.3 },
         uCount: { value: 0 },
         uDir: { value: Array.from({ length: N }, () => new Vector3()) },
@@ -126,6 +125,11 @@ export class EnvMap {
     return this.target.texture;
   }
 
+  /** Orientation of the current system's frame (system -> ecliptic world). */
+  setFrame(toEcliptic: Matrix3): void {
+    (this.mat.uniforms.uW2G.value as Matrix3).multiplyMatrices(this.w2g, toEcliptic);
+  }
+
   setMilkyWay(t: Texture): void {
     this.mat.uniforms.uMilkyWay.value = t;
   }
@@ -141,9 +145,9 @@ export class EnvMap {
     if (this.timer > 0 && !force) return false;
     this.timer = interval;
     const u = this.mat.uniforms;
-    const sun = this.eph.get('sun');
+    const sun = this.eph.star;
     // pick the bodies with the largest angular size
-    const cands = this.universe.views
+    const cands = this.universe.active
       .filter((v) => v.state.def.kind !== 'star')
       .map((v) => ({ v, ang: v.state.def.radius / Math.max(_rel.subVectors(v.state.pos, camAbs).length(), 1) }))
       .sort((a, b) => b.ang - a.ang)
@@ -163,8 +167,7 @@ export class EnvMap {
       _tmp.subVectors(sun.pos, s.pos);
       const ds = _tmp.length();
       (u.uSunB.value as Vector3[])[i].copy(_tmp).multiplyScalar(1 / ds).applyMatrix3(w2b);
-      const irr = (AU_KM / ds) ** 2;
-      (u.uIrr.value as Vector3[])[i].set(irr, irr * 0.975, irr * 0.94);
+      starIrradiance(sun.def, ds, (u.uIrr.value as Vector3[])[i]);
       const atmo = s.def.atmosphere;
       const haze = (u.uHaze.value as Vector3[])[i];
       if (atmo && s.def.shading === 'earth') haze.set(0.12, 0.28, 0.75);

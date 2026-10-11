@@ -4,12 +4,30 @@ import {
 } from 'three';
 import type { BodyState, Ephemeris } from '../sim/ephemeris';
 import { AU_KM } from '../sim/constants';
+import { luminosityOf, systemOf, type BodyDef } from '../sim/bodies';
 import { createPlanetMaterial, MAX_OCCLUDERS } from './planetMaterial';
 import { SUN_RADIANCE, createBodyPointsMaterial, createRingMaterial, createSunGlowMaterial, createSunMaterial } from './bodyMaterials';
 import { createDetailTexture } from './detail';
 import { solidTexture, TextureStreamer, type Kind } from './textures';
 
 export const SUN_COLOR = new Vector3(1.0, 0.975, 0.94);
+
+/**
+ * Colour of a star's light, relative to the Sun's (SUN_COLOR at 5,772 K): the ratio of Planck spectra
+ * at three wavelengths, scaled so the green channel keeps the Sun's value.
+ */
+export function starColor(teff: number, out = new Vector3()): Vector3 {
+  const planck = (lnm: number, T: number) => 1 / (Math.pow(lnm, 5) * (Math.exp(1.4388e7 / (lnm * T)) - 1));
+  const r = planck(610, teff) / planck(610, 5772);
+  const g = planck(550, teff) / planck(550, 5772);
+  const b = planck(465, teff) / planck(465, 5772);
+  return out.set(SUN_COLOR.x * r / g, SUN_COLOR.y, SUN_COLOR.z * b / g);
+}
+
+/** Light of a star at a distance (km): its colour times its luminosity over the distance in AU squared. */
+export function starIrradiance(star: BodyDef, dist: number, out: Vector3): Vector3 {
+  return starColor(star.teff ?? 5772, out).multiplyScalar(luminosityOf(star) * (AU_KM / dist) ** 2);
+}
 
 /** Apparent brightness (display intensity) of a point source of visual magnitude m. Shared with the star shader. */
 export function magToIntensity(m: number): number {
@@ -49,6 +67,9 @@ export class Universe {
   readonly scene = new Scene();
   readonly camera = new PerspectiveCamera(60, 1, 1e-4, 1e11);
   readonly views: BodyView[] = [];
+  /** the views of the system the ship is in */
+  active: BodyView[] = [];
+  private inSystem: boolean[] = [];
   readonly byId = new Map<string, BodyView>();
   private points: Points;
   private pointsMat: ShaderMaterial;
@@ -72,14 +93,19 @@ export class Universe {
     this.camera.matrixAutoUpdate = true;
     const proxy = new IcosahedronGeometry(1, 3);
 
-    for (const state of eph.list) {
+    for (const state of eph.all) {
       const def = state.def;
       const hasNormal = this.textures.has(def.id, 'normal');
       const hasAux = this.textures.has(def.id, 'aux');
       const isSun = def.kind === 'star';
       const mat = isSun ? createSunMaterial(this.black) : createPlanetMaterial(def, this.black, hasNormal, this.detail);
       if (hasNormal) mat.uniforms.uNormal.value = this.flatNormal;
-      if (def.shading === 'earth') mat.uniforms.uAux.value = this.auxDefault;
+      if (def.shading === 'earth' || def.shading === 'lava') mat.uniforms.uAux.value = this.auxDefault;
+      if (isSun) {
+        const T = def.teff ?? 5772;
+        mat.uniforms.uRadiance.value = SUN_RADIANCE * (T / 5772) ** 4;
+        (mat.uniforms.uTint.value as Vector3).copy(starColor(T)).divide(SUN_COLOR);
+      }
       const mesh = new Mesh(proxy, mat);
       mesh.frustumCulled = true;
       mesh.matrixAutoUpdate = false;
@@ -116,7 +142,7 @@ export class Universe {
     }
 
     // Unresolved bodies as points of light.
-    const n = eph.list.length;
+    const n = eph.all.length;
     this.pointPos = new Float32Array(n * 3);
     this.pointCol = new Float32Array(n * 3);
     this.pointInt = new Float32Array(n);
@@ -129,6 +155,21 @@ export class Universe {
     this.points.frustumCulled = false;
     this.points.renderOrder = 2;
     this.scene.add(this.points);
+    this.setSystem();
+  }
+
+  /** Shows only the bodies of the ephemeris's current system. */
+  setSystem(): void {
+    const id = this.eph.system.id;
+    this.inSystem = this.views.map((v) => systemOf(v.state.def.id) === id);
+    this.active = this.views.filter((_, i) => this.inSystem[i]);
+    this.views.forEach((v, i) => {
+      if (this.inSystem[i]) return;
+      v.mesh.visible = false;
+      if (v.ring) v.ring.visible = false;
+      if (v.glow) v.glow.visible = false;
+      this.pointInt[i] = 0;
+    });
   }
 
   private loadRingTexture(path: string, mat: ShaderMaterial): void {
@@ -185,10 +226,11 @@ export class Universe {
     } else on.value = 0;
   }
 
-  /** Loads the smallest tier of every texture. */
-  async preload(onProgress: (f: number) => void): Promise<void> {
+  /** Loads the smallest tier of every texture of a system (the current one by default). */
+  async preload(onProgress: (f: number) => void = () => undefined, system = this.eph.system.id): Promise<void> {
     const jobs: Promise<unknown>[] = [];
     for (const v of this.views) {
+      if (systemOf(v.state.def.id) !== system) continue;
       const id = v.state.def.id;
       jobs.push(this.textures.preload(id, 'map').then((t) => t && (v.mat.uniforms.uMap.value = t)));
       if (v.hasNormal) jobs.push(this.textures.preload(id, 'normal').then((t) => t && (v.mat.uniforms.uNormal.value = t)));
@@ -216,9 +258,11 @@ export class Universe {
     this.camera.quaternion.copy(camQuat);
     this.camera.updateMatrixWorld(true);
     _fwd.set(0, 0, -1).applyQuaternion(camQuat);
-    const sun = this.eph.get('sun');
+    const sun = this.eph.star;
+    const lum = luminosityOf(sun.def);
 
     for (let i = 0; i < this.views.length; i++) {
+      if (!this.inSystem[i]) continue;
       const v = this.views[i];
       const s = v.state;
       const def = s.def;
@@ -265,8 +309,7 @@ export class Universe {
         const dSun = _tmp.length();
         _tmp.multiplyScalar(1 / dSun);
         (u.uSunB.value as Vector3).copy(_tmp).applyMatrix3(_w2b);
-        const irr = (AU_KM / dSun) ** 2;
-        (u.uSunIrr.value as Vector3).copy(SUN_COLOR).multiplyScalar(irr);
+        starIrradiance(sun.def, dSun, u.uSunIrr.value as Vector3);
         u.uSunAng.value = sun.def.radius / dSun;
         if (visible) this.updateOccluders(v, _tmp, _w2b);
         if (def.kind === 'moon' && s.parent) this.updateShine(v, _w2b);
@@ -341,7 +384,7 @@ export class Universe {
       {
         let mag: number;
         if (def.kind === 'star') {
-          mag = -26.74 + 5 * Math.log10(dist / AU_KM);
+          mag = -26.74 + 5 * Math.log10(dist / AU_KM) - 2.5 * Math.log10(lum);
         } else {
           const r = s.pos.distanceTo(sun.pos) / AU_KM;
           const delta = dist / AU_KM;
@@ -349,14 +392,14 @@ export class Universe {
           _tmp2.copy(_rel).negate().normalize();
           const alpha = Math.acos(Math.min(1, Math.max(-1, _tmp.dot(_tmp2))));
           const q = Math.max((Math.sin(alpha) + (Math.PI - alpha) * Math.cos(alpha)) / Math.PI, 1e-4);
-          mag = def.H + 5 * Math.log10(r * delta) - 2.5 * Math.log10(q);
+          mag = def.H + 5 * Math.log10(r * delta) - 2.5 * Math.log10(q) - 2.5 * Math.log10(lum);
         }
         v.apparentMag = mag;
         if (isStar) {
           // the same light as the disc it replaces (pi r^2 pixels at the disc radiance) rather than its
           // magnitude, which overflowed the half-float buffer and blew the bloom up into a white-out
           const gauss = (Math.PI / 1.1) * dprPx * dprPx; // integral of the point's falloff, in pixels
-          if (fade > 0) intensity = (SUN_RADIANCE * Math.PI * v.pixelRadius * v.pixelRadius * fade) / (gauss * this.pointBrightness);
+          if (fade > 0) intensity = ((u.uRadiance.value as number) * Math.PI * v.pixelRadius * v.pixelRadius * fade) / (gauss * this.pointBrightness);
         } else if (fade > 0 && dist > def.radius * 1.5) intensity = magToIntensity(mag) * fade;
       }
       this.pointInt[i] = intensity;
@@ -409,7 +452,7 @@ export class Universe {
     const s = v.state;
     const p = s.parent!;
     if (p.def.kind === 'star') return;
-    const sun = this.eph.get('sun');
+    const sun = this.eph.star;
     _tmp.subVectors(p.pos, s.pos);
     const d = _tmp.length();
     _tmp.multiplyScalar(1 / d);
@@ -418,7 +461,7 @@ export class Universe {
     // phase of the parent seen from the moon: fraction lit
     const cosPhase = -_tmp.dot(_tmp2);
     const lit = (1 + cosPhase) / 2;
-    const irr = (AU_KM / p.pos.distanceTo(sun.pos)) ** 2;
+    const irr = luminosityOf(sun.def) * (AU_KM / p.pos.distanceTo(sun.pos)) ** 2;
     const solid = (p.def.radius / d) ** 2;
     const k = p.def.albedo * lit * solid * irr * 1.2;
     const c = p.def.color;
@@ -428,7 +471,7 @@ export class Universe {
   /** Is a camera-relative direction blocked by any body (ray test)? Returns nearest hit distance or Infinity. */
   rayBlocked(dir: Vector3, maxDist: number, ignore?: string): number {
     let best = Infinity;
-    for (const v of this.views) {
+    for (const v of this.active) {
       if (v.state.def.id === ignore) continue;
       const c = v.mesh.matrixWorld.elements;
       _tmp.set(c[12], c[13], c[14]);

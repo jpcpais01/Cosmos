@@ -5,7 +5,9 @@ import {
 } from 'three';
 import { Ephemeris } from './sim/ephemeris';
 import { AU_KM, C_KMS, WARP_FACTORS, type WarpFactor } from './sim/constants';
-import { Universe, SUN_COLOR } from './render/universe';
+import { luminosityOf, systemOf } from './sim/bodies';
+import { SYSTEM_BY_ID } from './sim/systems';
+import { Universe, starIrradiance } from './render/universe';
 import { Sky, worldToGalactic } from './render/sky';
 import { PostPipeline } from './render/post';
 import { ShipMask, shipMaskUniforms } from './render/shipMask';
@@ -72,7 +74,7 @@ function webglAvailable(): boolean {
 
 /** Fraction of the solar disc visible from p (soft eclipses by any body). */
 function sunVisibility(eph: Ephemeris, p: Vector3): number {
-  const sun = eph.get('sun');
+  const sun = eph.star;
   const toSun = _s1.subVectors(sun.pos, p);
   const ds = toSun.length();
   toSun.multiplyScalar(1 / ds);
@@ -226,6 +228,20 @@ async function main(): Promise<void> {
     fade.classList.add('on');
     window.setTimeout(() => fade.classList.remove('on'), 60);
   };
+  /** Moves the game into another star system: its bodies, sky and map take over. */
+  const switchSystem = (id: string) => {
+    if (eph.system.id === id || !SYSTEM_BY_ID[id]) return;
+    eph.setSystem(id);
+    eph.update(simMs);
+    universe.setSystem();
+    void universe.preload(undefined, id);
+    const sys = eph.system;
+    sky.setFrame(sys.toEcliptic);
+    env.setFrame(sys.toEcliptic);
+    // the system's own bright stars; the old ones stay up until they arrive
+    const url = `${BASE}${sys.stars}`;
+    if (!sky.useStars(url)) void sky.loadStars(url, false).then(() => eph.system === sys && sky.useStars(url));
+  };
   const goLocation = (l: SavedLocation) => {
     flashFade();
     warp.state = 'idle';
@@ -235,6 +251,7 @@ async function main(): Promise<void> {
     const epoch = l.custom && !settings.locTime ? null : l.epoch;
     if (epoch !== null) simMs = epoch;
     eph.update(simMs);
+    switchSystem(l.system ?? 'sol');
     l.place(eph, ship);
     ship.updateEnvironment();
     if (l.view) {
@@ -492,6 +509,8 @@ async function main(): Promise<void> {
     }),
     dbg: (o: Partial<typeof dbg>) => Object.assign(dbg, o),
     internals: () => ({ universe, sky, post, renderer, shipView, ship, warp, eph, rig, shipMask }),
+    /** the star system the ship is in */
+    system: () => eph.system.id,
     /** points the ship at a body */
     face: (id: string) => {
       const d = new Vector3().subVectors(eph.get(id).pos, ship.absPos(new Vector3())).normalize();
@@ -506,8 +525,9 @@ async function main(): Promise<void> {
     /** moves the ship next to a body (distance from its centre in km), sun behind */
     teleport: (id: string, km: number) => {
       const b = eph.get(id);
-      const dir = new Vector3().subVectors(eph.get('sun').pos, b.pos).normalize();
-      if (id === 'sun') dir.set(1, 0, 0);
+      switchSystem(systemOf(id));
+      const dir = new Vector3().subVectors(eph.star.pos, b.pos).normalize();
+      if (b === eph.star) dir.set(1, 0, 0);
       ship.frame = b;
       ship.setAbs(new Vector3().copy(b.pos).addScaledVector(dir, km));
       ship.vel.set(0, 0, 0);
@@ -573,6 +593,7 @@ async function main(): Promise<void> {
   const camAbs = new Vector3();
   const tmp = new Vector3();
   const tmp2 = new Vector3();
+  const tmp3 = new Vector3();
   const fwd = new Vector3();
   const sunUv = new Vector2();
   const apex = new Vector2(0.5, 0.5);
@@ -761,13 +782,15 @@ async function main(): Promise<void> {
     const pr = bufH / cssH;
     universe.setViewport(bufH, rig.camera.fov, cssW / cssH);
 
-    // exposure: compensate partially for the inverse-square falloff of sunlight in the outer system
-    const sun = eph.get('sun');
-    const dSunAU = Math.max(camAbs.distanceTo(sun.pos) / AU_KM, 0.05);
-    const distExposure = Math.pow(Math.max(dSunAU, 0.3), 1.55);
+    // exposure: compensate partially for the inverse-square falloff of starlight in the outer system
+    // (distances count as from a Sun-like star: a brighter star's light reaches farther)
+    const sun = eph.star;
+    const lum = luminosityOf(sun.def);
+    const dSunAU = Math.max(camAbs.distanceTo(sun.pos) / AU_KM / Math.sqrt(lum), 0.005);
+    const distExposure = Math.pow(Math.max(dSunAU, eph.system.exposureFloorAU), 1.55);
     // dim stars while a big sunlit body fills the view (the eye adapts to it)
     let litCover = 0;
-    for (const v of universe.views) {
+    for (const v of universe.active) {
       if (v.state.def.kind === 'star' || !v.mesh.visible) continue;
       const area = Math.min(1, (Math.PI * v.pixelRadius * v.pixelRadius) / (bufW * bufH));
       if (area < 0.002) continue;
@@ -794,13 +817,14 @@ async function main(): Promise<void> {
     const dSun = toSun.length();
     toSun.multiplyScalar(1 / dSun);
     const vis = sunVisibility(eph, shipAbs);
-    const irr = (AU_KM / dSun) ** 2;
     const sl = shipView.sun;
+    const starLight = starIrradiance(sun.def, dSun, tmp3);
+    const irr = starLight.y / 0.975;
     const focus = rig.mode === 'cockpit' ? rig.offset : ORIGIN;
     sl.target.position.copy(focus);
     sl.position.copy(focus).addScaledVector(toSun, rig.mode === 'cockpit' ? 8 : 45);
     sl.intensity = irr * Math.PI * vis;
-    sl.color.setRGB(SUN_COLOR.x, SUN_COLOR.y, SUN_COLOR.z);
+    sl.color.setRGB(starLight.x / irr, starLight.y / irr, starLight.z / irr);
     sl.castShadow = vis > 0.01;
     sunInShip.copy(toSun).applyQuaternion(shipQInv.copy(ship.quat).invert());
     shadowAge++;
@@ -893,7 +917,7 @@ async function main(): Promise<void> {
       dt,
       sunUv,
       sunOn,
-      sunPower: MathUtils.clamp(Math.pow(AU_KM / sunDist, 0.8), 0.12, 1.6),
+      sunPower: MathUtils.clamp(Math.pow(AU_KM * Math.sqrt(lum) / sunDist, 0.8), 0.12, 1.6),
       sunRadius,
       apex,
       warp: warpVis,
@@ -954,7 +978,7 @@ async function main(): Promise<void> {
     if (ship.altitude < near.def.radius * 12) return { altitude: ship.altitude, nearest: near.def.name };
     const f = ship.frame;
     const alt = ship.rel.length() - f.def.radius;
-    if (f.def.kind === 'star') return { altitude: alt, nearest: 'Interplanetary space' };
+    if (f.def.kind === 'star') return { altitude: alt, nearest: eph.system.id === 'sol' ? 'Interplanetary space' : `${eph.system.name} system` };
     return { altitude: alt, nearest: `${f.def.name} system` };
   };
   const cssPerRad = () => cssH / (2 * Math.tan((rig.camera.fov * Math.PI) / 360));
@@ -992,7 +1016,7 @@ async function main(): Promise<void> {
     const items: { x: number; y: number; text: string; sub: string }[] = [];
     const placed: [number, number][] = [];
     const sys = ship.frame.def.kind === 'moon' && ship.frame.parent ? ship.frame.parent : ship.frame;
-    const sorted = [...universe.views].sort((a, b) => a.distance - b.distance);
+    const sorted = [...universe.active].sort((a, b) => a.distance - b.distance);
     for (const v of sorted) {
       const d = v.state.def;
       const isMoon = d.kind === 'moon';
