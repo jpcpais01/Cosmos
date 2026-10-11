@@ -14,7 +14,7 @@ import { Ship, lookQuat } from './ship/flight';
 import { ShipView } from './ship/shipModel';
 import { CameraRig } from './ship/cameraRig';
 import { WarpDrive, type WarpTarget } from './game/warp';
-import { DEFAULT_LOCATIONS, deleteCustomLocation, loadCustomLocations, saveCustomLocation, type SavedLocation } from './game/locations';
+import { DEFAULT_LOCATIONS, deleteCustomLocation, loadCustomLocations, renameCustomLocation, saveCustomLocation, type SavedLocation } from './game/locations';
 import { Input } from './game/input';
 import { clearLastFlight, lastFlightLocation, lastFlightTarget, loadLastFlight, resumeMotion, saveLastFlight } from './game/resume';
 import { Hud, loadSettings, saveSettings, type Quality, type Settings } from './ui/hud';
@@ -226,7 +226,9 @@ async function main(): Promise<void> {
     warp.state = 'idle';
     warp.intensity = 0;
     ship.autopilot = false;
-    if (l.epoch !== null) simMs = l.epoch;
+    // your own locations can keep the current time instead (the ship still lands beside the same body)
+    const epoch = l.custom && !settings.locTime ? null : l.epoch;
+    if (epoch !== null) simMs = epoch;
     eph.update(simMs);
     l.place(eph, ship);
     ship.updateEnvironment();
@@ -234,6 +236,12 @@ async function main(): Promise<void> {
     env.update(0, ship.absPos(new Vector3()), 1, true);
     hud.syncTouchThrottle(0);
     hud.toast(l.name);
+  };
+  const saveHere = (name: string) => {
+    const l = saveCustomLocation(name, simMs, ship, placeInfo().nearest);
+    customLocations = loadCustomLocations();
+    hud.buildLocations(DEFAULT_LOCATIONS, customLocations);
+    hud.toast(`Saved "${l.name}" · L to see your locations`);
   };
   const setFactor = (f: WarpFactor) => {
     if (warp.active) return;
@@ -343,11 +351,11 @@ async function main(): Promise<void> {
         hud.toast('Back to real time');
       },
       goLocation,
-      saveLocation: (name) => {
-        saveCustomLocation(name, simMs, ship);
+      saveLocation: (name) => saveHere(name),
+      renameLocation: (id, name) => {
+        renameCustomLocation(id, name);
         customLocations = loadCustomLocations();
         hud.buildLocations(DEFAULT_LOCATIONS, customLocations);
-        hud.toast(`Saved "${name}"`);
       },
       deleteLocation: (id) => {
         deleteCustomLocation(id);
@@ -605,6 +613,9 @@ async function main(): Promise<void> {
           break;
         case 'KeyL':
           hud.showPanel(hud.locPanel);
+          break;
+        case 'KeyB':
+          saveHere('');
           break;
         case 'KeyH':
           hud.showPanel(hud.helpPanel);

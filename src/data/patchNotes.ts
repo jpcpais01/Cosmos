@@ -11,6 +11,15 @@ export interface PatchNote {
 export const PATCH_NOTES: PatchNote[] = [
   {
     date: '2026-10-11',
+    title: 'Save your own locations',
+    notes: [
+      'Press B, or use Save here in the Saved locations panel (L or the pin button), to bookmark where you are, which way you face and the date and time.',
+      'Your locations are listed first, named after the nearest planet or moon unless you give a name. Rename them with the pencil or delete them with the cross.',
+      'Untick "Jump to the time it was saved" to go back to a spot but stay at the current time.',
+    ],
+  },
+  {
+    date: '2026-10-11',
     title: 'A subtler night sky',
     notes: [
       'The Milky Way and faint stars are dimmer, closer to how faint they really look.',

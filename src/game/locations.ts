@@ -170,23 +170,43 @@ interface StoredLocation {
   frame: string;
   rel: [number, number, number];
   quat: [number, number, number, number];
+  /** where it was saved, e.g. "Io" or "Jupiter system" */
+  place?: string;
 }
 
-export function loadCustomLocations(): SavedLocation[] {
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+function fmtEpoch(ms: number): string {
+  const d = new Date(ms);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}, ${p(d.getUTCHours())}:${p(d.getUTCMinutes())} UTC`;
+}
+
+function readStored(): StoredLocation[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    return (JSON.parse(raw) as StoredLocation[]).map(fromStored);
+    const list = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '[]') as unknown;
+    return Array.isArray(list) ? (list as StoredLocation[]) : [];
   } catch {
     return [];
   }
+}
+
+function writeStored(list: StoredLocation[]): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+  } catch {
+    /* storage full or unavailable */
+  }
+}
+
+export function loadCustomLocations(): SavedLocation[] {
+  return readStored().filter((s) => s && typeof s.frame === 'string').map(fromStored);
 }
 
 function fromStored(s: StoredLocation): SavedLocation {
   return {
     id: s.id,
     name: s.name,
-    description: `Saved ${new Date(s.epoch).toUTCString()}`,
+    description: `${s.place ? `${s.place} · ` : ''}${fmtEpoch(s.epoch)}`,
     epoch: s.epoch,
     custom: true,
     place(eph, ship) {
@@ -196,14 +216,15 @@ function fromStored(s: StoredLocation): SavedLocation {
   };
 }
 
-export function saveCustomLocation(name: string, epoch: number, ship: Ship): SavedLocation {
-  const list = (() => {
-    try {
-      return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '[]') as StoredLocation[];
-    } catch {
-      return [];
-    }
-  })();
+/** Saves where the ship is, which way it faces and the sim time. An empty name is made from the place. */
+export function saveCustomLocation(name: string, epoch: number, ship: Ship, place?: string): SavedLocation {
+  const list = readStored();
+  if (!name) {
+    const base = place || 'My location';
+    const taken = new Set(list.map((l) => l.name));
+    name = base;
+    for (let i = 2; taken.has(name); i++) name = `${base} ${i}`;
+  }
   const s: StoredLocation = {
     id: `custom-${Date.now()}`,
     name,
@@ -211,21 +232,21 @@ export function saveCustomLocation(name: string, epoch: number, ship: Ship): Sav
     frame: ship.frame.def.id,
     rel: [ship.rel.x, ship.rel.y, ship.rel.z],
     quat: [ship.quat.x, ship.quat.y, ship.quat.z, ship.quat.w],
+    place,
   };
   list.push(s);
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
-  } catch {
-    /* storage unavailable */
-  }
+  writeStored(list);
   return fromStored(s);
 }
 
+export function renameCustomLocation(id: string, name: string): void {
+  const list = readStored();
+  const l = list.find((x) => x.id === id);
+  if (!l || !name) return;
+  l.name = name;
+  writeStored(list);
+}
+
 export function deleteCustomLocation(id: string): void {
-  try {
-    const list = (JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '[]') as StoredLocation[]).filter((l) => l.id !== id);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
-  } catch {
-    /* ignore */
-  }
+  writeStored(readStored().filter((l) => l.id !== id));
 }

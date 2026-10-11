@@ -1193,15 +1193,61 @@ body.intro #ui {
   gap: 6px;
 }
 .loc-item {
-  position: relative;
-  text-align: left;
-  font-family: var(--font);
-  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 6px;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 8px;
-  padding: 10px 40px 10px 12px;
+}
+.loc-go {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  font-family: var(--font);
+  color: var(--text);
+  background: none;
+  border: 0;
+  padding: 10px 12px;
   cursor: pointer;
+}
+.loc-tools {
+  display: flex;
+  gap: 4px;
+  padding-right: 6px;
+}
+.loc-rename {
+  flex: 1;
+  min-width: 0;
+  margin: 8px 0 8px 8px;
+  font-family: var(--font);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  padding: 3px 8px;
+  outline: none;
+  user-select: text;
+}
+.loc-time {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 4px;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.loc-time input {
+  flex: none;
+  accent-color: var(--cyan);
+}
+.loc-empty {
+  margin: 10px 0 2px;
+  font-size: 13px;
+  color: var(--muted);
 }
 .loc-item:hover {
   background: rgba(95, 212, 255, 0.1);
@@ -1216,11 +1262,6 @@ body.intro #ui {
   font-size: 13px;
   color: var(--muted);
 }
-.loc-item .del {
-  position: absolute;
-  right: 6px;
-  top: 8px;
-}
 .sep {
   margin: 10px 0 2px;
   font-size: 11px;
@@ -1230,7 +1271,6 @@ body.intro #ui {
 .loc-save {
   display: flex;
   gap: 8px;
-  margin-top: 14px;
 }
 .loc-save input,
 .set-row select {
