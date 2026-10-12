@@ -10,6 +10,16 @@ export interface PatchNote {
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    date: '2026-10-12',
+    title: 'A cleaner glass HUD on desktop',
+    notes: [
+      'On computers the minimap now sits at the top left, in one glass card with where you are, the date and the time controls, like on phones.',
+      'The whole desktop HUD has a quieter, modern look: frosted glass cards, one toolbar dock at the top right, a slim speed readout, a segmented warp factor picker, and switches in Settings. The map and the panels match it.',
+      'The time controls use proper rewind, pause / play and fast-forward icons, on phones too.',
+      'Only the four HUD cards blur what is behind them, where before about twenty separate buttons and panels each did, so the new look costs about the same or a little less.',
+    ],
+  },
+  {
     date: '2026-10-11',
     title: 'Galaxy map',
     notes: [

@@ -460,7 +460,8 @@ async function main(): Promise<void> {
   };
   const minimap = new Minimap(eph, ship, warp);
   minimap.onClick = toggleMap;
-  hud.root.append(minimap.root, gatePanel.root);
+  hud.mountMinimap(minimap.root);
+  hud.root.append(gatePanel.root);
   $('ui').append(hud.root, map.root);
   input.canLock = () => !map.open && !hud.panelOpen;
   input.onLockChange = (on) => hud.setMouseFlight(on);
