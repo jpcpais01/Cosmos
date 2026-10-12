@@ -144,6 +144,10 @@ const ICONS = {
   refresh: '<svg viewBox="0 0 24 24"><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3" fill="none"/><path d="M18.5 3.5v4h-4" fill="none"/></svg>',
   full: '<svg viewBox="0 0 24 24"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" fill="none"/></svg>',
   more: '<svg viewBox="0 0 24 24"><circle cx="5.5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="18.5" cy="12" r="1.6"/></svg>',
+  slower: '<svg viewBox="0 0 24 24"><path d="M11 6v12l-8-6zM21 6v12l-8-6z"/></svg>',
+  faster: '<svg viewBox="0 0 24 24"><path d="M13 6v12l8-6zM3 6v12l8-6z"/></svg>',
+  // both drawn; CSS shows the play triangle while time is paused
+  pause: '<svg viewBox="0 0 24 24"><path class="i-pause" d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/><path class="i-play" d="M8 5v14l11-7z"/></svg>',
 };
 
 /** Phones and tablets get the thumb-driven touch layout. */
@@ -175,6 +179,8 @@ export class Hud {
   private locSub = el('div', 'loc-sub');
   private dateEl = el('div', 'date');
   private scaleEl = el('div', 'tscale');
+  /** desktop: the card at the top left that holds the scanner beside where you are */
+  private nav = el('div', 'hud-nav');
   private fpsEl = el('div', 'fps');
   private fpsLine = el('div', 'fps-line');
   private perfEl = el('div', 'perf');
@@ -218,13 +224,15 @@ export class Hud {
   private lastState?: HudState;
 
   constructor(private actions: HudActions, private settings: Settings) {
+    // mouse and keyboard screens get the glass layout (see "desktop" in style.css)
+    if (!TOUCH) document.body.classList.add('desk-ui');
     // top-left: location & time
     const tl = el('div', 'hud-tl');
     const timeRow = el('div', 'time-row');
     timeRow.append(
-      btn('«', 'Slower time ( , )', () => actions.timeSlower(), 'btn small'),
-      btn('❚❚', 'Pause / resume time (P)', () => actions.timePause(), 'btn small'),
-      btn('»', 'Faster time ( . )', () => actions.timeFaster(), 'btn small'),
+      btn(ICONS.slower, 'Slower time ( , )', () => actions.timeSlower(), 'btn small'),
+      btn(ICONS.pause, 'Pause / resume time (P)', () => actions.timePause(), 'btn small'),
+      btn(ICONS.faster, 'Faster time ( . )', () => actions.timeFaster(), 'btn small'),
       btn('NOW', 'Back to the real current time', () => actions.timeNow(), 'btn small'),
       this.scaleEl,
     );
@@ -239,7 +247,13 @@ export class Hud {
       saveSettings(this.settings);
     };
     // touch: the time controls live in the "more" menu, so the corner stays small
-    tl.append(this.locName, this.locSub, this.dateEl, ...(TOUCH ? [] : [timeRow]), this.fpsEl);
+    if (TOUCH) tl.append(this.locName, this.locSub, this.dateEl, this.fpsEl);
+    else {
+      const info = el('div', 'nav-info');
+      info.append(this.locName, this.locSub, this.dateEl, timeRow);
+      this.nav.append(info);
+      tl.append(this.nav, this.fpsEl);
+    }
 
     // top-right toolbar
     const tr = el('div', 'hud-tr');
@@ -274,6 +288,7 @@ export class Hud {
       btn(ICONS.map, 'Solar system map (M)', () => actions.toggleMap(), 'btn icon'),
       btn(ICONS.pin, 'Saved locations (L)', () => this.showPanel(this.locPanel), 'btn icon'),
       btn(ICONS.eye, 'Change view (V)', () => actions.cycleView(), 'btn icon'),
+      el('span', 'tr-sep'),
       more,
       this.moreBtn,
     );
@@ -322,6 +337,12 @@ export class Hud {
     this.root.append(this.locPanel, this.settingsPanel, this.helpPanel, this.touch);
     this.refreshPerf();
     this.refreshToggles();
+  }
+
+  /** Places the scanner: inside the top-left card on desktop, in its own corner on touch screens. */
+  mountMinimap(node: HTMLElement): void {
+    if (TOUCH) this.root.append(node);
+    else this.nav.prepend(node);
   }
 
   toggle(k: 'sound' | 'labels' | 'fps' | 'minimap'): void {
@@ -778,6 +799,8 @@ export class Hud {
     setText(this.locSub, `${s.nearest === 'Interplanetary space' ? 'From the Sun' : 'Altitude'} ${fmtDistance(s.altitude)} · ${s.view}`);
     const scale = s.timeScale === 0 ? 'PAUSED' : s.timeScale === 1 ? 'REAL TIME' : `×${s.timeScale.toLocaleString('en-US')}`;
     setText(this.scaleEl, scale);
+    this.scaleEl.classList.toggle('alt', s.timeScale !== 1);
+    this.root.classList.toggle('paused', s.timeScale === 0);
     // touch: the time controls are tucked away, so say here when time isn't running normally
     setText(this.dateEl, TOUCH && s.timeScale !== 1 ? `${fmtDate(s.simMs)} · ${scale}` : fmtDate(s.simMs));
     for (const [f, b] of this.factorBtns) b.classList.toggle('on', f === s.warpFactor);
